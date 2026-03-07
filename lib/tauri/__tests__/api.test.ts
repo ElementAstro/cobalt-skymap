@@ -324,6 +324,43 @@ describe('observationLogApi', () => {
     expect(result.observations.length).toBe(1);
   });
 
+  it('should create a planned session with execution payload', async () => {
+    const payload = {
+      planDate: '2026-03-06',
+      locationId: 'loc-1',
+      locationName: 'Backyard',
+      sourcePlanId: 'plan-1',
+      sourcePlanName: 'Tonight Plan',
+      executionTargets: [
+        {
+          id: 'plan-1-m31',
+          targetId: 'm31',
+          targetName: 'M31',
+          scheduledStart: '2026-03-06T12:00:00.000Z',
+          scheduledEnd: '2026-03-06T13:30:00.000Z',
+          scheduledDurationMinutes: 90,
+          order: 1,
+          status: 'planned' as const,
+          observationIds: [],
+        },
+      ],
+    };
+    mockInvoke.mockResolvedValue({
+      id: 'session-1',
+      date: '2026-03-06',
+      observations: [],
+      equipment_ids: [],
+      execution_status: 'active',
+      created_at: '',
+      updated_at: '',
+    });
+
+    const result = await observationLogApi.createPlannedSession(payload);
+
+    expect(mockInvoke).toHaveBeenCalledWith('create_planned_session', { payload });
+    expect(result.execution_status).toBe('active');
+  });
+
   it('should update session', async () => {
     const session = { id: '1', date: '2024-01-01', notes: 'Updated notes', observations: [], equipment_ids: [], created_at: '', updated_at: '' };
     mockInvoke.mockResolvedValue(session);

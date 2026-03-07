@@ -175,40 +175,34 @@ describe('astro-data-sources', () => {
   });
 
   describe('fetchPlanetaryEvents', () => {
-    it('should return static planetary events without API key', async () => {
+    it('should return empty without API key', async () => {
       const events = await fetchPlanetaryEvents(2025, 0);
-      expect(events.length).toBeGreaterThan(0);
-      // January 2025 has Mars at Opposition
-      const mars = events.find(e => e.name.includes('Mars'));
-      expect(mars).toBeDefined();
-      expect(mars?.type).toBe('planet_opposition');
+      expect(events).toEqual([]);
     });
 
-    it('should return empty for months with no static events', async () => {
+    it('should return empty when no API key is provided for any month', async () => {
       const events = await fetchPlanetaryEvents(2025, 3); // April
-      // April 2025 has no static planetary events
       expect(events.length).toBe(0);
     });
 
-    it('should use static data as fallback when API key provided but request fails', async () => {
+    it('should return empty when API key is provided but request fails', async () => {
       mockFetch.mockRejectedValueOnce(new Error('API error'));
       const events = await fetchPlanetaryEvents(2025, 0, {
         apiKey: 'test-key',
         apiUrl: 'https://api.example.com',
       });
-      // Should fallback to static data
-      expect(events.length).toBeGreaterThan(0);
+      expect(events).toEqual([]);
     });
 
     it('should call AstronomyAPI body-specific endpoint with observer params', async () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ data: { table: { rows: [] } } }),
+          json: () => Promise.resolve({ data: { rows: [] } }),
         })
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ data: { table: { rows: [] } } }),
+          json: () => Promise.resolve({ data: { rows: [] } }),
         });
 
       await fetchPlanetaryEvents(

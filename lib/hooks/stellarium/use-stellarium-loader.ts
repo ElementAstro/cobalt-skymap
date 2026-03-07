@@ -85,6 +85,8 @@ export function useStellariumLoader({
   const [loadingStatus, setLoadingStatus] = useState(() => t('preparingResources'));
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loadingPhase, setLoadingPhase] = useState<LoadingState['phase']>('preparing');
+  const [loadingErrorCode, setLoadingErrorCode] = useState<LoadingState['errorCode']>(null);
   const [engineReady, setEngineReady] = useState(false);
   
   const setStel = useStellariumStore((state) => state.setStel);
@@ -427,9 +429,11 @@ export function useStellariumLoader({
 
     if (mountedRef.current) {
       setErrorMessage(null);
+      setLoadingErrorCode(null);
       setIsLoading(true);
       setLoadingStatus(t('preparingResources'));
       setLoadingProgress(5);
+      setLoadingPhase('preparing');
     }
 
     let shouldRetry = false;
@@ -438,6 +442,8 @@ export function useStellariumLoader({
       // Step 1: Setup canvas
       if (!canvasRef.current || !containerRef.current) {
         setLoadingStatus(t('canvasContainerNotReady'));
+        setLoadingPhase('failed');
+        setLoadingErrorCode('container_not_ready');
         shouldRetry = true;
       } else {
         const canvas = canvasRef.current;
@@ -445,6 +451,8 @@ export function useStellariumLoader({
         const rect = container.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
           setLoadingStatus(t('canvasContainerNotReady'));
+          setLoadingPhase('failed');
+          setLoadingErrorCode('container_not_ready');
           shouldRetry = true;
         } else {
           const dpr = getEffectiveDpr(getRenderQuality());
@@ -456,6 +464,7 @@ export function useStellariumLoader({
           // WebAssembly.instantiateStreaming; this hint just warms the HTTP cache.
           setLoadingStatus(t('preparingResources'));
           setLoadingProgress(10);
+          setLoadingPhase('preparing');
           if (!document.querySelector('link[href$=".wasm"][rel="prefetch"]')) {
             const link = document.createElement('link');
             link.rel = 'prefetch';
@@ -468,6 +477,7 @@ export function useStellariumLoader({
           // Step 3: Load script
           setLoadingStatus(t('loadingScript'));
           setLoadingProgress(20);
+          setLoadingPhase('loading_script');
           try {
             await withTimeout(loadScript(), SCRIPT_LOAD_TIMEOUT, t('engineScriptTimedOut'));
           } catch (error) {
@@ -482,6 +492,7 @@ export function useStellariumLoader({
           // Step 4: Initialize WASM engine
           setLoadingStatus(t('initializingStarmap'));
           setLoadingProgress(40);
+          setLoadingPhase('initializing_engine');
           try {
             await withTimeout(initializeEngine(), WASM_INIT_TIMEOUT, t('starmapInitTimedOut'));
           } catch (error) {
@@ -498,6 +509,8 @@ export function useStellariumLoader({
             setLoadingProgress(100);
             setIsLoading(false);
             setErrorMessage(null);
+            setLoadingErrorCode(null);
+            setLoadingPhase('ready');
           }
           retryCountRef.current = 0;
         }
@@ -525,12 +538,28 @@ export function useStellariumLoader({
       if (retryCountRef.current < MAX_RETRY_COUNT && withinDeadline) {
         retryCountRef.current++;
         setLoadingStatus(t('retrying', { current: retryCountRef.current, max: MAX_RETRY_COUNT }));
+        setLoadingPhase('retrying');
         shouldRetry = true;
       } else {
         // Max retries or overall deadline exceeded
         if (mountedRef.current) {
-          setErrorMessage(withinDeadline ? errorMsg : t('overallTimeout'));
+          const didTimeOut = !withinDeadline;
+          setErrorMessage(didTimeOut ? t('overallTimeout') : errorMsg);
           setIsLoading(false);
+          setLoadingPhase(didTimeOut ? 'timed_out' : 'failed');
+          setLoadingErrorCode(
+            didTimeOut
+              ? 'overall_timeout'
+              : stage === 'script'
+                ? errorMsg === t('engineScriptTimedOut')
+                  ? 'script_timeout'
+                  : 'script_failed'
+                : stage === 'engine'
+                  ? errorMsg === t('starmapInitTimedOut')
+                    ? 'engine_timeout'
+                    : 'engine_init_failed'
+                  : 'unknown'
+          );
         }
       }
     } finally {
@@ -543,6 +572,8 @@ export function useStellariumLoader({
         if (mountedRef.current) {
           setErrorMessage(t('overallTimeout'));
           setIsLoading(false);
+          setLoadingPhase('timed_out');
+          setLoadingErrorCode('overall_timeout');
         }
       } else if (containerRef.current) {
         // Use ResizeObserver to retry as soon as the container has a non-zero size,
@@ -623,6 +654,9 @@ export function useStellariumLoader({
       errorMessage,
       startTime: loadingStartTime,
       progress: loadingProgress,
+      phase: loadingPhase,
+      errorCode: loadingErrorCode,
+      retryCount: retryCountRef.current,
     },
     engineReady,
     startLoading,

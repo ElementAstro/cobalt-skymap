@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SessionPlanner } from '../session-planner';
 
 jest.mock('next-intl', () => ({
@@ -14,11 +14,14 @@ jest.mock('../mount-safety-simulator', () => ({
 }));
 
 jest.mock('@/lib/storage/platform', () => ({
-  isTauri: () => false,
+  isTauri: jest.fn(() => false),
 }));
 
 jest.mock('@/lib/tauri', () => ({
   tauriApi: {
+    observationLog: {
+      createPlannedSession: jest.fn(),
+    },
     sessionIo: {
       exportSessionPlan: jest.fn(),
       importSessionPlan: jest.fn(),
@@ -142,7 +145,7 @@ const mockEquipmentState = {
 };
 
 const mockSessionPlanState = {
-  savedPlans: [],
+  savedPlans: [] as Array<Record<string, unknown>>,
   templates: [{
     id: 'tpl-1',
     name: 'Template A',
@@ -159,11 +162,16 @@ const mockSessionPlanState = {
     createdAt: new Date('2025-01-01T00:00:00.000Z').toISOString(),
     updatedAt: new Date('2025-01-01T00:00:00.000Z').toISOString(),
   }],
-  savePlan: jest.fn(),
+  executions: [] as Array<Record<string, unknown>>,
+  activeExecutionId: null as string | null,
+  savePlan: jest.fn(() => 'saved-plan-1'),
   saveTemplate: jest.fn(),
   loadTemplate: jest.fn(),
   importPlanV2: jest.fn(),
   deletePlan: jest.fn(),
+  syncExecutionFromObservationSession: jest.fn(),
+  setActiveExecution: jest.fn(),
+  createExecutionFromPlan: jest.fn(),
 };
 
 const mockPlanningUiState = {
@@ -212,6 +220,42 @@ jest.mock('@/lib/stores/target-list-store', () => ({
 }));
 
 describe('SessionPlanner', () => {
+  const mockIsTauri = jest.requireMock('@/lib/storage/platform').isTauri as jest.Mock;
+  const mockCreatePlannedSession = jest.requireMock('@/lib/tauri').tauriApi.observationLog.createPlannedSession as jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsTauri.mockReturnValue(false);
+    mockSessionPlanState.savedPlans = [];
+    mockSessionPlanState.executions = [];
+    mockSessionPlanState.activeExecutionId = null;
+    mockSessionPlanState.savePlan.mockReturnValue('saved-plan-1');
+    mockCreatePlannedSession.mockResolvedValue({
+      id: 'session-1',
+      date: '2025-06-15',
+      observations: [],
+      equipment_ids: [],
+      source_plan_id: 'saved-plan-1',
+      source_plan_name: 'sessionPlanner.title - 6/15/2025',
+      execution_status: 'active',
+      execution_targets: [
+        {
+          id: 'saved-plan-1-target-1',
+          target_id: 'target-1',
+          target_name: 'M31',
+          scheduled_start: '2025-06-15T20:30:00.000Z',
+          scheduled_end: '2025-06-15T22:00:00.000Z',
+          scheduled_duration_minutes: 90,
+          order: 1,
+          status: 'planned',
+          observation_ids: [],
+        },
+      ],
+      created_at: '2025-06-15T19:00:00.000Z',
+      updated_at: '2025-06-15T19:00:00.000Z',
+    });
+  });
+
   it('renders conflict banners and template entry points', () => {
     render(<SessionPlanner />);
     expect(screen.getByText('Cloud cover too high')).toBeInTheDocument();
@@ -255,5 +299,86 @@ describe('SessionPlanner', () => {
 
     fireEvent.click(enforceSwitch);
     expect(avoidSwitch).not.toBeDisabled();
+  });
+
+  it('starts execution from the current plan in Tauri mode', async () => {
+    mockIsTauri.mockReturnValue(true);
+
+    render(<SessionPlanner />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'sessionPlanner.startExecution' }));
+
+    await waitFor(() => {
+      expect(mockSessionPlanState.savePlan).toHaveBeenCalled();
+      expect(mockCreatePlannedSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourcePlanId: 'saved-plan-1',
+          executionTargets: expect.arrayContaining([
+            expect.objectContaining({
+              targetId: 'target-1',
+              targetName: 'M31',
+            }),
+          ]),
+        }),
+      );
+      expect(mockSessionPlanState.syncExecutionFromObservationSession).toHaveBeenCalled();
+    });
+  });
+
+  it('shows continue execution when an active execution exists', () => {
+    mockSessionPlanState.savedPlans = [{
+      id: 'saved-plan-1',
+      name: 'Saved Plan',
+      createdAt: '2025-06-15T19:00:00.000Z',
+      updatedAt: '2025-06-15T19:00:00.000Z',
+      planDate: new Date().toISOString(),
+      latitude: 40,
+      longitude: -74,
+      strategy: 'balanced',
+      minAltitude: 30,
+      minImagingTime: 30,
+      targets: [{
+        targetId: 'target-1',
+        targetName: 'M31',
+        ra: 10.684,
+        dec: 41.269,
+        startTime: '2025-06-15T20:30:00.000Z',
+        endTime: '2025-06-15T22:00:00.000Z',
+        duration: 1.5,
+        maxAltitude: 72,
+        moonDistance: 88,
+        feasibilityScore: 86,
+        order: 1,
+      }],
+      excludedTargetIds: [],
+      totalImagingTime: 1.5,
+      nightCoverage: 40,
+      efficiency: 100,
+    }];
+    mockSessionPlanState.executions = [{
+      id: 'session-1',
+      sourcePlanId: 'saved-plan-1',
+      sourcePlanName: 'Saved Plan',
+      status: 'active',
+      planDate: new Date().toISOString(),
+      createdAt: '2025-06-15T19:00:00.000Z',
+      updatedAt: '2025-06-15T19:00:00.000Z',
+      targets: [{
+        id: 'saved-plan-1-target-1',
+        targetId: 'target-1',
+        targetName: 'M31',
+        scheduledStart: '2025-06-15T20:30:00.000Z',
+        scheduledEnd: '2025-06-15T22:00:00.000Z',
+        scheduledDurationMinutes: 90,
+        order: 1,
+        status: 'planned',
+        observationIds: [],
+      }],
+    }];
+    mockSessionPlanState.activeExecutionId = 'session-1';
+
+    render(<SessionPlanner />);
+
+    expect(screen.getByRole('button', { name: 'sessionPlanner.continueExecution' })).toBeInTheDocument();
   });
 });

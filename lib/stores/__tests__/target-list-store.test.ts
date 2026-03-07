@@ -67,6 +67,19 @@ describe('useTargetListStore', () => {
       expect(result.current.targets).toEqual([]);
     });
 
+    it('exposes multi-list target-management state', () => {
+      const { result } = renderHook(() => useTargetListStore());
+
+      expect(Array.isArray(result.current.targetLists)).toBe(true);
+      expect(Array.isArray(result.current.targetEntries)).toBe(true);
+      expect(typeof result.current.activeListId).toBe('string');
+      expect(result.current.plannerSelection).toEqual({
+        mode: 'active',
+        selectedListIds: [],
+      });
+      expect(result.current.targetLists).toHaveLength(1);
+    });
+
     it('should have no active target', () => {
       const { result } = renderHook(() => useTargetListStore());
       expect(result.current.activeTargetId).toBeNull();
@@ -383,6 +396,70 @@ describe('useTargetListStore', () => {
       });
 
       expect(result.current.targets[0].isArchived).toBe(true);
+    });
+  });
+
+  describe('multi-list operations', () => {
+    it('creates a default replacement list when the last list is deleted', () => {
+      const { result } = renderHook(() => useTargetListStore());
+      const listId = result.current.activeListId;
+
+      act(() => {
+        result.current.deleteList(listId);
+      });
+
+      expect(result.current.targetLists).toHaveLength(1);
+      expect(result.current.activeListId).toBe(result.current.targetLists[0].id);
+    });
+
+    it('keeps target state independent across lists', () => {
+      const { result } = renderHook(() => useTargetListStore());
+      const listA = result.current.activeListId;
+      let listB = '';
+
+      act(() => {
+        listB = result.current.createList({ name: 'Widefield' });
+        result.current.addEntryToList(listA, mockTarget);
+        result.current.addEntryToList(listB, mockTarget);
+      });
+
+      const entryA = result.current.getEntriesForList(listA)[0];
+      const entryB = result.current.getEntriesForList(listB)[0];
+
+      act(() => {
+        result.current.updateEntry(entryA.id, { status: 'completed', notes: 'done' });
+      });
+
+      expect(result.current.getEntryById(entryA.id)?.status).toBe('completed');
+      expect(result.current.getEntryById(entryA.id)?.notes).toBe('done');
+      expect(result.current.getEntryById(entryB.id)?.status).toBe('planned');
+      expect(result.current.getEntryById(entryB.id)?.notes).toBeUndefined();
+    });
+
+    it('aggregates entries across selected planner lists', () => {
+      const { result } = renderHook(() => useTargetListStore());
+      let wideId = '';
+      let narrowId = '';
+
+      act(() => {
+        wideId = result.current.createList({ name: 'Wide' });
+        narrowId = result.current.createList({ name: 'Narrow' });
+        result.current.addEntryToList(wideId, mockTarget);
+        result.current.addEntryToList(narrowId, {
+          ...mockTarget,
+          name: 'NGC 7000',
+          ra: 312.5,
+          dec: 44.3,
+          raString: '20h 50m',
+          decString: '+44° 18\'',
+        });
+        result.current.setPlannerSelection({
+          mode: 'selected',
+          selectedListIds: [wideId, narrowId],
+        });
+      });
+
+      expect(result.current.getPlannerEntries()).toHaveLength(2);
     });
   });
 

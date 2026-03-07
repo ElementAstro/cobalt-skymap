@@ -21,7 +21,7 @@ interface LoadingOverlayProps {
  */
 export function LoadingOverlay({ loadingState, onRetry }: LoadingOverlayProps) {
   const t = useTranslations('canvas');
-  const { isLoading, loadingStatus, errorMessage, startTime, progress } = loadingState;
+  const { isLoading, loadingStatus, errorMessage, startTime, progress, phase } = loadingState;
   const [elapsed, setElapsed] = useState(0);
   const [smoothProgress, setSmoothProgress] = useState(0);
   const animRef = useRef<number | null>(null);
@@ -63,8 +63,10 @@ export function LoadingOverlay({ loadingState, onRetry }: LoadingOverlayProps) {
     };
   }, [progress]);
 
-  // Don't render if not loading and no error
-  if (!isLoading && !errorMessage) {
+  const showTerminalRetry = !isLoading && (phase === 'timed_out' || phase === 'failed');
+
+  // Don't render if not loading and no terminal failure state
+  if (!isLoading && !errorMessage && !showTerminalRetry) {
     return null;
   }
 
@@ -110,9 +112,11 @@ export function LoadingOverlay({ loadingState, onRetry }: LoadingOverlayProps) {
           </Button>
         </div>
       )}
-      {errorMessage && (
+      {(errorMessage || showTerminalRetry) && (
         <>
-          <p className="text-destructive text-xs mb-3">{errorMessage}</p>
+          {errorMessage && (
+            <p className="text-destructive text-xs mb-3">{errorMessage}</p>
+          )}
           <Button size="sm" onClick={onRetry}>
             {t('retry')}
           </Button>

@@ -4,6 +4,9 @@
 
 export type FeedbackType = 'bug' | 'feature';
 
+export type FeedbackSeverity = 'critical' | 'major' | 'minor' | 'cosmetic';
+export type FeedbackPriority = 'high' | 'medium' | 'low';
+
 export interface FeedbackDraft {
   type: FeedbackType;
   title: string;
@@ -13,6 +16,9 @@ export interface FeedbackDraft {
   additionalContext: string;
   includeSystemInfo: boolean;
   includeLogs: boolean;
+  severity?: FeedbackSeverity;
+  priority?: FeedbackPriority;
+  screenshot?: string | null;
 }
 
 export interface FeedbackDiagnostics {

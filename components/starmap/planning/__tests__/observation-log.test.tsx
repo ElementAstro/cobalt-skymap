@@ -2,7 +2,19 @@
  * @jest-environment jsdom
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+const mockSessionPlanState = {
+  savedPlans: [],
+  importPlanV2: jest.fn(),
+  syncExecutionFromObservationSession: jest.fn(),
+  executions: [],
+  activeExecutionId: null,
+};
+
+const mockPlanningUiState = {
+  openSessionPlanner: jest.fn(),
+};
 
 // Mock stores and hooks
 jest.mock('next-intl', () => ({
@@ -41,6 +53,9 @@ jest.mock('@/lib/tauri', () => ({
       }),
       search: jest.fn().mockResolvedValue([]),
     },
+    sessionIo: {
+      exportSessionPlan: jest.fn().mockResolvedValue('/tmp/execution.md'),
+    },
   },
 }));
 
@@ -51,15 +66,23 @@ jest.mock('@/lib/storage/platform', () => ({
 }));
 
 jest.mock('@/lib/stores/session-plan-store', () => ({
-  useSessionPlanStore: (selector: (state: unknown) => unknown) => selector({
-    savedPlans: [],
-    importPlanV2: jest.fn(),
-  }),
+  useSessionPlanStore: (selector: (state: unknown) => unknown) => selector(mockSessionPlanState),
 }));
 
 jest.mock('@/lib/stores/planning-ui-store', () => ({
-  usePlanningUiStore: (selector: (state: unknown) => unknown) => selector({
-    openSessionPlanner: jest.fn(),
+  usePlanningUiStore: (selector: (state: unknown) => unknown) => selector(mockPlanningUiState),
+}));
+
+jest.mock('@/lib/tauri/hooks', () => ({
+  useLocations: () => ({
+    locations: { locations: [] },
+    loading: false,
+    error: null,
+  }),
+  useEquipment: () => ({
+    equipment: { telescopes: [], cameras: [] },
+    loading: false,
+    error: null,
   }),
 }));
 
@@ -183,9 +206,13 @@ describe('ObservationLog', () => {
   const defaultProps = {
     currentSelection: null,
   };
+  const { tauriApi } = jest.requireMock('@/lib/tauri');
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSessionPlanState.savedPlans = [];
+    mockSessionPlanState.executions = [];
+    mockSessionPlanState.activeExecutionId = null;
   });
 
   it('renders without crashing', () => {
@@ -242,6 +269,129 @@ describe('ObservationLog', () => {
     // Component should still render even when isTauri returns false
     render(<ObservationLog {...defaultProps} />);
     expect(screen.getByTestId('drawer')).toBeInTheDocument();
+  });
+
+  it('renders active execution targets and updates target status', async () => {
+    tauriApi.observationLog.load.mockResolvedValue({
+      sessions: [{
+        id: 'session-1',
+        date: '2025-06-15',
+        observations: [],
+        equipment_ids: [],
+        source_plan_id: 'plan-1',
+        source_plan_name: 'Tonight Plan',
+        execution_status: 'active',
+        execution_targets: [{
+          id: 'exec-target-1',
+          target_id: 'target-1',
+          target_name: 'M31',
+          scheduled_start: '2025-06-15T20:30:00.000Z',
+          scheduled_end: '2025-06-15T22:00:00.000Z',
+          scheduled_duration_minutes: 90,
+          order: 1,
+          status: 'planned',
+          observation_ids: [],
+        }],
+        created_at: '2025-06-15T19:00:00.000Z',
+        updated_at: '2025-06-15T19:00:00.000Z',
+      }],
+    });
+    tauriApi.observationLog.updateSession.mockImplementation(async (session: unknown) => session);
+
+    render(<ObservationLog {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('observation-log-execution-workspace')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('M31')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'observationLog.startTarget' }));
+
+    await waitFor(() => {
+      expect(tauriApi.observationLog.updateSession).toHaveBeenCalledWith(expect.objectContaining({
+        execution_targets: expect.arrayContaining([
+          expect.objectContaining({
+            target_id: 'target-1',
+            status: 'in_progress',
+          }),
+        ]),
+      }));
+    });
+    expect(mockSessionPlanState.syncExecutionFromObservationSession).toHaveBeenCalled();
+  });
+
+  it('passes execution_target_id when adding an observation from an execution target', async () => {
+    tauriApi.observationLog.load.mockResolvedValue({
+      sessions: [{
+        id: 'session-1',
+        date: '2025-06-15',
+        observations: [],
+        equipment_ids: [],
+        source_plan_id: 'plan-1',
+        source_plan_name: 'Tonight Plan',
+        execution_status: 'active',
+        execution_targets: [{
+          id: 'exec-target-1',
+          target_id: 'target-1',
+          target_name: 'M31',
+          scheduled_start: '2025-06-15T20:30:00.000Z',
+          scheduled_end: '2025-06-15T22:00:00.000Z',
+          scheduled_duration_minutes: 90,
+          order: 1,
+          status: 'planned',
+          observation_ids: [],
+        }],
+        created_at: '2025-06-15T19:00:00.000Z',
+        updated_at: '2025-06-15T19:00:00.000Z',
+      }],
+    });
+    tauriApi.observationLog.addObservation.mockResolvedValueOnce({
+      id: 'session-1',
+      date: '2025-06-15',
+      observations: [{ id: 'obs-1', object_name: 'M31', execution_target_id: 'target-1' }],
+      equipment_ids: [],
+      source_plan_id: 'plan-1',
+      source_plan_name: 'Tonight Plan',
+      execution_status: 'active',
+      execution_targets: [{
+        id: 'exec-target-1',
+        target_id: 'target-1',
+        target_name: 'M31',
+        scheduled_start: '2025-06-15T20:30:00.000Z',
+        scheduled_end: '2025-06-15T22:00:00.000Z',
+        scheduled_duration_minutes: 90,
+        order: 1,
+        status: 'completed',
+        observation_ids: ['obs-1'],
+      }],
+      created_at: '2025-06-15T19:00:00.000Z',
+      updated_at: '2025-06-15T19:30:00.000Z',
+    });
+
+    render(<ObservationLog currentSelection={{
+        name: 'M31',
+        ra: 10.68,
+        dec: 41.27,
+        raString: '00h 42m 44s',
+        decString: '+41° 16′ 09″',
+        type: 'galaxy',
+        constellation: 'Andromeda',
+    }} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('observation-log-execution-workspace')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'observationLog.addTargetObservation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'observationLog.addObservation' }));
+
+    await waitFor(() => {
+      expect(tauriApi.observationLog.addObservation).toHaveBeenCalledWith('session-1', expect.objectContaining({
+        execution_target_id: 'target-1',
+      }));
+    });
+    expect(mockSessionPlanState.syncExecutionFromObservationSession).toHaveBeenCalled();
   });
 });
 

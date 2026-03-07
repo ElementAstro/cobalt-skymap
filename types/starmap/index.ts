@@ -15,3 +15,4 @@ export * from './setup-wizard';
 export * from './search';
 export * from './plate-solving';
 export * from './view';
+export * from './target-management';

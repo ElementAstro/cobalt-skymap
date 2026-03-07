@@ -9,8 +9,24 @@ import React from 'react';
 // Mock Next.js Image component
 jest.mock('next/image', () => ({
   __esModule: true,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  default: ({ priority, fill, ...htmlProps }: React.ImgHTMLAttributes<HTMLImageElement> & { priority?: boolean; fill?: boolean }) => {
+  default: ({
+    priority: _priority,
+    fill: _fill,
+    unoptimized: _unoptimized,
+    placeholder: _placeholder,
+    blurDataURL: _blurDataURL,
+    loader: _loader,
+    quality: _quality,
+    ...htmlProps
+  }: React.ImgHTMLAttributes<HTMLImageElement> & {
+    priority?: boolean;
+    fill?: boolean;
+    unoptimized?: boolean;
+    placeholder?: string;
+    blurDataURL?: string;
+    loader?: unknown;
+    quality?: number;
+  }) => {
     return React.createElement('img', htmlProps);
   },
 }));

@@ -29,6 +29,8 @@ function resetStore() {
     savedPlans: [],
     templates: [],
     activePlanId: null,
+    executions: [],
+    activeExecutionId: null,
   });
 }
 
@@ -57,6 +59,33 @@ function makeDraft(overrides?: Partial<SessionDraftV2>): SessionDraftV2 {
     excludedTargetIds: ['t1'],
     manualEdits: [],
     ...overrides,
+  };
+}
+
+function makeExecutionPlanInput(name = 'Execution Plan') {
+  return {
+    ...makePlanInput(name),
+    notes: 'Execution notes',
+    weatherSnapshot: {
+      source: 'manual' as const,
+      capturedAt: '2025-07-01T00:00:00Z',
+      cloudCover: 20,
+    },
+    targets: [
+      {
+        targetId: 'm31',
+        targetName: 'M31',
+        ra: 10.684,
+        dec: 41.269,
+        startTime: '2025-07-01T20:00:00.000Z',
+        endTime: '2025-07-01T21:30:00.000Z',
+        duration: 1.5,
+        maxAltitude: 72,
+        moonDistance: 88,
+        feasibilityScore: 94,
+        order: 1,
+      },
+    ],
   };
 }
 
@@ -278,6 +307,56 @@ describe('useSessionPlanStore', () => {
       expect(plan.constraints).toEqual(draft.constraints);
       expect(plan.weatherSnapshot?.cloudCover).toBe(20);
       expect(plan.notes).toBe('Test notes');
+    });
+  });
+
+  describe('execution workflow', () => {
+    it('should create an active execution from a saved plan', () => {
+      let planId = '';
+      act(() => {
+        planId = useSessionPlanStore.getState().savePlan(makeExecutionPlanInput());
+      });
+
+      const saved = useSessionPlanStore.getState().getPlanById(planId);
+      expect(saved).toBeDefined();
+
+      let executionId = '';
+      act(() => {
+        executionId = useSessionPlanStore.getState().createExecutionFromPlan(saved!, {
+          locationId: 'loc-1',
+          locationName: 'Backyard',
+        });
+      });
+
+      const state = useSessionPlanStore.getState();
+      expect(state.activeExecutionId).toBe(executionId);
+      expect(state.executions).toHaveLength(1);
+      expect(state.executions[0].sourcePlanId).toBe(planId);
+      expect(state.executions[0].targets[0].status).toBe('planned');
+      expect(state.executions[0].targets[0].scheduledDurationMinutes).toBe(90);
+    });
+
+    it('should attach an observation id to the matching execution target', () => {
+      let planId = '';
+      act(() => {
+        planId = useSessionPlanStore.getState().savePlan(makeExecutionPlanInput());
+      });
+
+      const saved = useSessionPlanStore.getState().getPlanById(planId);
+      let executionId = '';
+      act(() => {
+        executionId = useSessionPlanStore.getState().createExecutionFromPlan(saved!, {
+          locationId: 'loc-1',
+          locationName: 'Backyard',
+        });
+      });
+
+      act(() => {
+        useSessionPlanStore.getState().attachObservationToExecutionTarget(executionId, 'm31', 'obs-1');
+      });
+
+      const target = useSessionPlanStore.getState().executions[0].targets[0];
+      expect(target.observationIds).toEqual(['obs-1']);
     });
   });
 

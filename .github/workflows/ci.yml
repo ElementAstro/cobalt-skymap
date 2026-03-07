@@ -417,15 +417,19 @@ jobs:
           - platform: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             arch: amd64
+            updater_platform: linux-x86_64
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             arch: x64
+            updater_platform: windows-x86_64
           - platform: macos-latest
             target: x86_64-apple-darwin
             arch: x64
+            updater_platform: darwin-x86_64
           - platform: macos-latest
             target: aarch64-apple-darwin
             arch: arm64
+            updater_platform: darwin-aarch64
 
     runs-on: ${{ matrix.platform }}
 
@@ -470,30 +474,51 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # Note: Code signing is OPTIONAL and DISABLED by default.
-      # Unsigned builds are suitable for testing and development.
-      # For production releases with code signing, uncomment the env section below
-      # and configure the appropriate secrets for your platform.
-      #
-      # To enable code signing:
-      # 1. Add the required secrets to your GitHub repository
-      # 2. Uncomment the env section below
-      # 3. For macOS: Add APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
-      # 4. For Windows: Add WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD
-      - name: Build Tauri app
-        # env:
-        #   # Optional: macOS code signing (only used if secrets are configured)
-        #   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-        #   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        #   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        #   APPLE_ID: ${{ secrets.APPLE_ID }}
-        #   APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-        #   APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        #   # Optional: Windows code signing (only used if secrets are configured)
-        #   WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-        #   WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      - name: Prepare updater release config
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
-          pnpm tauri build --target ${{ matrix.target }}
+          if [ -z "$TAURI_UPDATER_PUBLIC_KEY" ]; then
+            echo "TAURI_UPDATER_PUBLIC_KEY is required for tagged releases" >&2
+            exit 1
+          fi
+
+          cat > src-tauri/tauri.release-updater.json <<EOF
+          {
+            "bundle": {
+              "createUpdaterArtifacts": true
+            },
+            "plugins": {
+              "updater": {
+                "pubkey": "${TAURI_UPDATER_PUBLIC_KEY}",
+                "endpoints": [
+                  "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
+                ]
+              }
+            }
+          }
+          EOF
+
+      - name: Build Tauri app (development)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: pnpm tauri build --target ${{ matrix.target }}
+        continue-on-error: false
+
+      - name: Build Tauri app (release updater)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is required for tagged releases" >&2
+            exit 1
+          fi
+
+          pnpm tauri build --target ${{ matrix.target }} --config src-tauri/tauri.release-updater.json
         continue-on-error: false
 
       - name: Upload Linux artifacts (AppImage)
@@ -550,6 +575,19 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+      - name: Upload updater artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-${{ matrix.updater_platform }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.zip
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.zip.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.tar.gz.sig
+          retention-days: 30
+          if-no-files-found: error
+
   # Job 6: Create GitHub Release (only on tags)
   create-release:
     name: Create Release
@@ -572,16 +610,23 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts/
 
+      - name: Generate updater manifest
+        run: node scripts/updater/build-latest-json.cjs --repo ${{ github.repository }} --tag ${{ github.ref_name }} --artifacts artifacts --changelog CHANGELOG.md --output artifacts/latest.json
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           draft: true
           generate_release_notes: true
           files: |
+            artifacts/latest.json
             artifacts/**/*.AppImage
             artifacts/**/*.deb
             artifacts/**/*.msi
             artifacts/**/*.exe
             artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+            artifacts/**/*.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

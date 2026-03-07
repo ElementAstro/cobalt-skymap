@@ -105,8 +105,13 @@ describe('ExposureSettings', () => {
 
   it('renders exposure time buttons', () => {
     render(<ExposureSettings />);
-    // Should have buttons for preset exposure times (30s, 60s, 120s, etc.)
-    expect(screen.getAllByTestId('button').length).toBeGreaterThan(5);
+    // Preset exposure options are rendered as toggle items
+    expect(screen.getByRole('radio', { name: '30s' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '60s' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '120s' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '180s' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '300s' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '600s' })).toBeInTheDocument();
   });
 
   it('renders gain and offset inputs', () => {
@@ -116,8 +121,10 @@ describe('ExposureSettings', () => {
 
   it('renders binning buttons', () => {
     render(<ExposureSettings />);
-    // Should have buttons for 1x1, 2x2, 3x3, 4x4
-    expect(screen.getAllByTestId('button').length).toBeGreaterThan(4);
+    expect(screen.getByText('1x1')).toBeInTheDocument();
+    expect(screen.getByText('2x2')).toBeInTheDocument();
+    expect(screen.getByText('3x3')).toBeInTheDocument();
+    expect(screen.getByText('4x4')).toBeInTheDocument();
   });
 
   it('renders filter select', () => {

@@ -5,6 +5,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { DailyKnowledgeDialog } from '../daily-knowledge-dialog';
+import { isMobile } from '@/lib/storage/platform';
 
 const mockToastSuccess = jest.fn();
 const mockToastError = jest.fn();
@@ -14,6 +15,10 @@ jest.mock('sonner', () => ({
     success: (...args: unknown[]) => mockToastSuccess(...args),
     error: (...args: unknown[]) => mockToastError(...args),
   },
+}));
+
+jest.mock('@/lib/storage/platform', () => ({
+  isMobile: jest.fn(() => false),
 }));
 
 const itemA = {
@@ -70,6 +75,10 @@ const mockStore: {
   markDontShowToday: jest.Mock;
   goToRelatedObject: jest.Mock;
   recordHistory: jest.Mock;
+  viewMode: 'pager' | 'feed';
+  setViewMode: jest.Mock;
+  wheelPagingEnabled: boolean;
+  setWheelPagingEnabled: jest.Mock;
 } = {
   open: true,
   loading: false,
@@ -95,6 +104,10 @@ const mockStore: {
   markDontShowToday: jest.fn(),
   goToRelatedObject: jest.fn(),
   recordHistory: jest.fn(),
+  viewMode: 'pager',
+  setViewMode: jest.fn(),
+  wheelPagingEnabled: false,
+  setWheelPagingEnabled: jest.fn(),
 };
 
 jest.mock('@/lib/stores', () => ({
@@ -113,8 +126,11 @@ function findButtonByIcon(iconClass: string): HTMLButtonElement {
 }
 
 describe('daily-knowledge-dialog', () => {
+  const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsMobile.mockReturnValue(false);
     mockStore.open = true;
     mockStore.loading = false;
     mockStore.error = null;
@@ -128,6 +144,8 @@ describe('daily-knowledge-dialog', () => {
       source: 'all',
       favoritesOnly: false,
     };
+    mockStore.viewMode = 'pager';
+    mockStore.wheelPagingEnabled = false;
 
     Object.defineProperty(global.navigator, 'share', {
       configurable: true,
@@ -158,6 +176,12 @@ describe('daily-knowledge-dialog', () => {
     expect(mockStore.random).toHaveBeenCalled();
   });
 
+  it('supports pager/feed mode switch controls', () => {
+    render(<DailyKnowledgeDialog />);
+    fireEvent.click(screen.getByRole('button', { name: 'dailyKnowledge.viewModeFeed' }));
+    expect(mockStore.setViewMode).toHaveBeenCalledWith('feed');
+  });
+
   it('renders event badge, language status, and fact source link', () => {
     render(<DailyKnowledgeDialog />);
 
@@ -183,6 +207,51 @@ describe('daily-knowledge-dialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /M31/ }));
     expect(mockStore.goToRelatedObject).toHaveBeenCalledWith({ name: 'M31', ra: 10.68, dec: 41.26 });
+  });
+
+  it('handles ArrowLeft/ArrowRight in pager mode', () => {
+    mockStore.viewMode = 'pager';
+    render(<DailyKnowledgeDialog />);
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(mockStore.prev).toHaveBeenCalledTimes(1);
+    expect(mockStore.next).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not bind keyboard handler in feed mode', () => {
+    mockStore.viewMode = 'feed';
+    render(<DailyKnowledgeDialog />);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(mockStore.next).not.toHaveBeenCalled();
+  });
+
+  it('does not page on wheel when toggle is disabled', () => {
+    mockStore.viewMode = 'pager';
+    mockStore.wheelPagingEnabled = false;
+    render(<DailyKnowledgeDialog />);
+    fireEvent.wheel(window, { deltaY: 100 });
+    expect(mockStore.next).not.toHaveBeenCalled();
+  });
+
+  it('pages once per throttle window when wheel paging is enabled', () => {
+    jest.useFakeTimers();
+    mockStore.viewMode = 'pager';
+    mockStore.wheelPagingEnabled = true;
+    render(<DailyKnowledgeDialog />);
+    fireEvent.wheel(window, { deltaY: 120 });
+    fireEvent.wheel(window, { deltaY: 120 });
+    expect(mockStore.next).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(320);
+    fireEvent.wheel(window, { deltaY: 120 });
+    expect(mockStore.next).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
+  });
+
+  it('renders feed cards and sets current item on card click', () => {
+    mockStore.viewMode = 'feed';
+    render(<DailyKnowledgeDialog />);
+    fireEvent.click(screen.getByRole('button', { name: 'Item B' }));
+    expect(mockStore.setCurrentItemById).toHaveBeenCalledWith('item-b');
   });
 
   it('uses share->clipboard fallback and supports copy action', async () => {

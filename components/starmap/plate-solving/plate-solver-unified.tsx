@@ -283,7 +283,7 @@ export function PlateSolverUnified({
 
   // Handle local solve
   const handleLocalSolve = useCallback(async (file: File, effectiveRaHint?: number, effectiveDecHint?: number) => {
-    if (!isDesktop || !canSolveLocal) return;
+    if (!isDesktop) return;
     if (config.solver_type === 'astrometry_net_online') {
       setResult(createErrorResult(
         activeSolver?.name || t('plateSolving.localSolverFallback'),
@@ -291,6 +291,7 @@ export function PlateSolverUnified({
       ));
       return;
     }
+    if (!canSolveLocal) return;
 
     setSolving(true);
     setResult(null);

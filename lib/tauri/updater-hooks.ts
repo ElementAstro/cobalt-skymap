@@ -214,7 +214,10 @@ export function useUpdater(options: UseUpdaterOptions = {}): UseUpdaterReturn {
     const store = useUpdaterStore.getState();
     if (!selectIsReady(store)) return;
     try {
-      await apiInstallUpdate();
+      const result = await apiInstallUpdate();
+      if (isUpdateError(result)) {
+        setStatus(result);
+      }
     } catch (err) {
       setStatus({
         status: 'error',
@@ -230,7 +233,10 @@ export function useUpdater(options: UseUpdaterOptions = {}): UseUpdaterReturn {
     setDownloadMetrics(null, null);
     setStatus({ status: 'downloading', data: { downloaded: 0, total: null, percent: 0 } });
     try {
-      await apiDownloadAndInstallUpdate();
+      const result = await apiDownloadAndInstallUpdate();
+      if (isUpdateError(result)) {
+        setStatus(result);
+      }
     } catch (err) {
       setStatus({
         status: 'error',

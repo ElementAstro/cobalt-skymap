@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import { useUpdater } from '@/lib/tauri/updater-hooks';
 import { formatProgress, formatBytes } from '@/lib/tauri/updater-api';
+import { openExternalUrl } from '@/lib/tauri/app-control-api';
+import { EXTERNAL_LINKS } from '@/lib/constants/external-links';
 
 interface UpdateDialogProps {
   open: boolean;
@@ -80,6 +82,12 @@ function formatEta(seconds: number): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
+function shouldOfferReleasesFallback(error: string | null): boolean {
+  if (!error) return false;
+
+  return /(not configured|signature|platform|manifest|latest\.json|github releases)/i.test(error);
+}
+
 export function UpdateDialog({ open, onOpenChange }: UpdateDialogProps) {
   const t = useTranslations('updater');
   const {
@@ -117,6 +125,10 @@ export function UpdateDialog({ open, onOpenChange }: UpdateDialogProps) {
     }
   };
 
+  const handleOpenReleases = async () => {
+    await openExternalUrl(EXTERNAL_LINKS.releases);
+  };
+
   const bodyText = updateInfo?.body ?? null;
   const releaseNotesHtml = useMemo(() => {
     if (!bodyText) return null;
@@ -138,10 +150,18 @@ export function UpdateDialog({ open, onOpenChange }: UpdateDialogProps) {
         <div className="flex flex-col items-center gap-4 py-6">
           <AlertCircle className="h-12 w-12 text-destructive" />
           <p className="text-destructive">{error}</p>
-          <Button onClick={checkForUpdate} variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            {t('retry')}
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button onClick={checkForUpdate} variant="outline">
+              <RefreshCw className="mr-2 h-4 w-4" />
+              {t('retry')}
+            </Button>
+            {shouldOfferReleasesFallback(error) && (
+              <Button onClick={handleOpenReleases}>
+                <Download className="mr-2 h-4 w-4" />
+                {t('openReleases')}
+              </Button>
+            )}
+          </div>
         </div>
       );
     }

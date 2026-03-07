@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   BookOpen,
@@ -79,6 +79,7 @@ import { isTauri } from '@/lib/storage/platform';
 import { usePlanningUiStore } from '@/lib/stores/planning-ui-store';
 import { useSessionPlanStore } from '@/lib/stores/session-plan-store';
 import { useLocations, useEquipment } from '@/lib/tauri/hooks';
+import { exportExecutionSummary, type ExecutionExportFormat } from '@/lib/astronomy/execution-exporter';
 import type { 
   ObservationSession, 
   Observation, 
@@ -95,6 +96,7 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
   const { locations } = useLocations();
   const { equipment } = useEquipment();
   const [open, setOpen] = useState(false);
+  const hasPreloadedRef = useRef(false);
   const [sessions, setSessions] = useState<ObservationSession[]>([]);
   const [stats, setStats] = useState<ObservationStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -128,8 +130,10 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
   const [obsNotes, setObsNotes] = useState('');
   const [obsTelescopeId, setObsTelescopeId] = useState('');
   const [obsCameraId, setObsCameraId] = useState('');
+  const [selectedExecutionTargetId, setSelectedExecutionTargetId] = useState<string | null>(null);
   const savedPlans = useSessionPlanStore((state) => state.savedPlans);
   const importPlanV2 = useSessionPlanStore((state) => state.importPlanV2);
+  const syncExecutionFromObservationSession = useSessionPlanStore((state) => state.syncExecutionFromObservationSession);
   const openSessionPlanner = usePlanningUiStore((state) => state.openSessionPlanner);
 
   // Load data
@@ -144,6 +148,11 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
       ]);
       const sorted = (logData.sessions || []).slice().sort((a, b) => b.date.localeCompare(a.date));
       setSessions(sorted);
+      sorted.forEach((session) => {
+        if (session.source_plan_id && session.execution_targets?.length) {
+          syncExecutionFromObservationSession(session);
+        }
+      });
       setStats(statsData);
     } catch (error) {
       logger.error('Failed to load observation log', error);
@@ -151,13 +160,14 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [syncExecutionFromObservationSession, t]);
 
   useEffect(() => {
-    if (open && isTauri()) {
-      loadData();
+    if (isTauri() && !hasPreloadedRef.current) {
+      hasPreloadedRef.current = true;
+      void loadData();
     }
-  }, [open, loadData]);
+  }, [loadData]);
 
   // Open edit session dialog with pre-filled data
   const handleStartEditSession = useCallback((session: ObservationSession) => {
@@ -285,12 +295,71 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
     toast.success(t('observationLog.plannerDraftCreated'));
   }, [importPlanV2, openSessionPlanner, savedPlans, t]);
 
+  const updateSessionCollection = useCallback((updatedSession: ObservationSession) => {
+    setSessions((previous) => {
+      const exists = previous.some((session) => session.id === updatedSession.id);
+      if (!exists) return [updatedSession, ...previous];
+      return previous.map((session) => session.id === updatedSession.id ? updatedSession : session);
+    });
+    setSelectedSession((previous) => (
+      previous?.id === updatedSession.id ? updatedSession : previous
+    ));
+  }, []);
+
+  const activeSession = sessions.find(s => !s.end_time);
+  const activeExecutionSession = useMemo(
+    () => sessions.find((session) => !session.end_time && session.execution_targets?.length),
+    [sessions],
+  );
+
+  const handleExecutionTargetStatus = useCallback(async (
+    session: ObservationSession,
+    targetId: string,
+    status: NonNullable<ObservationSession['execution_targets']>[number]['status'],
+  ) => {
+    if (!isTauri() || !session.execution_targets) return;
+
+    const now = new Date().toISOString();
+    const nextSession: ObservationSession = {
+      ...session,
+      execution_targets: session.execution_targets.map((target) => (
+        target.target_id !== targetId
+          ? target
+          : {
+              ...target,
+              status,
+              actual_start: status === 'in_progress' ? target.actual_start ?? now : target.actual_start,
+              actual_end: status === 'completed' ? now : target.actual_end,
+            }
+      )),
+    };
+
+    try {
+      const updatedSession = await tauriApi.observationLog.updateSession(nextSession);
+      const normalized = updatedSession && 'id' in updatedSession ? updatedSession : nextSession;
+      updateSessionCollection(normalized);
+      syncExecutionFromObservationSession(normalized);
+    } catch (error) {
+      logger.error('Failed to update execution target status', error);
+      toast.error(t('observationLog.updateFailed'));
+    }
+  }, [syncExecutionFromObservationSession, t, updateSessionCollection]);
+
+  const handleOpenExecutionObservation = useCallback((session: ObservationSession, targetId: string, targetName: string) => {
+    setSelectedSession(session);
+    setSelectedExecutionTargetId(targetId);
+    setObsObjectName(targetName);
+    setObsObjectType('');
+    setShowAddObservation(true);
+  }, []);
+
   // Add observation to session
   const handleAddObservation = useCallback(async () => {
-    if (!isTauri() || !selectedSession) return;
+    const targetSession = selectedSession ?? sessions.find((session) => session.id === activeSession?.id) ?? null;
+    if (!isTauri() || !targetSession) return;
     
     try {
-      await tauriApi.observationLog.addObservation(selectedSession.id, {
+      const updatedSession = await tauriApi.observationLog.addObservation(targetSession.id, {
         object_name: obsObjectName || currentSelection?.name || '',
         object_type: obsObjectType || currentSelection?.type,
         ra: currentSelection?.ra,
@@ -302,10 +371,12 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
         difficulty: obsDifficulty,
         notes: obsNotes || undefined,
         image_paths: [],
+        execution_target_id: selectedExecutionTargetId || undefined,
       });
       
       toast.success(t('observationLog.observationAdded'));
       setShowAddObservation(false);
+      setSelectedExecutionTargetId(null);
       setObsObjectName('');
       setObsObjectType('');
       setObsRating(3);
@@ -313,12 +384,16 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
       setObsNotes('');
       setObsTelescopeId('');
       setObsCameraId('');
+      updateSessionCollection(updatedSession);
+      if (updatedSession.source_plan_id && updatedSession.execution_targets?.length) {
+        syncExecutionFromObservationSession(updatedSession);
+      }
       loadData();
     } catch (error) {
       logger.error('Failed to add observation', error);
       toast.error(t('observationLog.addFailed'));
     }
-  }, [selectedSession, obsObjectName, obsObjectType, obsTelescopeId, obsCameraId, obsRating, obsDifficulty, obsNotes, currentSelection, t, loadData]);
+  }, [selectedExecutionTargetId, selectedSession, sessions, activeSession, obsObjectName, obsObjectType, obsTelescopeId, obsCameraId, obsRating, obsDifficulty, obsNotes, currentSelection, t, loadData, syncExecutionFromObservationSession, updateSessionCollection]);
 
   // End session
   const handleEndSession = useCallback(async (sessionId: string) => {
@@ -385,6 +460,22 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
     }
   }, [t]);
 
+  const handleExportExecution = useCallback(async (format: ExecutionExportFormat) => {
+    if (!isTauri() || !activeExecutionSession) return;
+
+    try {
+      const content = exportExecutionSummary(activeExecutionSession, { format });
+      await tauriApi.sessionIo.exportSessionPlan(
+        content,
+        format === 'markdown' ? 'markdown' : format,
+      );
+      toast.success(t('observationLog.executionExportSuccess'));
+    } catch (error) {
+      logger.error('Execution export failed', error);
+      toast.error(t('observationLog.exportFailed'));
+    }
+  }, [activeExecutionSession, t]);
+
   // Search observations
   const handleSearch = useCallback(async () => {
     if (!isTauri() || !searchQuery.trim()) return;
@@ -424,8 +515,6 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
     cutoff.setDate(cutoff.getDate() - days);
     return new Date(s.date) >= cutoff;
   });
-
-  const activeSession = sessions.find(s => !s.end_time);
 
   return (
     <TooltipProvider>
@@ -539,6 +628,92 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
                       <p className="text-xs text-muted-foreground mt-1">
                         {formatDate(activeSession.date)} • {activeSession.observations.length} {t('observationLog.observations')}
                       </p>
+                    </div>
+                  )}
+
+                  {activeExecutionSession && activeExecutionSession.execution_targets && (
+                    <div
+                      className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
+                      data-testid="observation-log-execution-workspace"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium">{t('observationLog.executionWorkspace')}</p>
+                          <p className="text-xs text-muted-foreground">{activeExecutionSession.source_plan_name || t('observationLog.activeSession')}</p>
+                        </div>
+                        <Badge>{activeExecutionSession.execution_status || 'active'}</Badge>
+                      </div>
+                      <div className="space-y-2">
+                        {activeExecutionSession.execution_targets.map((target) => (
+                          <div
+                            key={target.id}
+                            className="rounded-md border border-border/70 bg-background/60 p-2"
+                            data-testid={`observation-log-execution-target-${target.target_id}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-medium">{target.target_name}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {formatTime(target.scheduled_start)} - {formatTime(target.scheduled_end)}
+                                </p>
+                              </div>
+                              <Badge>{target.status}</Badge>
+                            </div>
+                            <div className="mt-2 flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => void handleExecutionTargetStatus(activeExecutionSession, target.target_id, 'in_progress')}
+                              >
+                                {t('observationLog.startTarget')}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => void handleExecutionTargetStatus(activeExecutionSession, target.target_id, 'completed')}
+                              >
+                                {t('observationLog.completeTarget')}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => handleOpenExecutionObservation(activeExecutionSession, target.target_id, target.target_name)}
+                              >
+                                {t('observationLog.addTargetObservation')}
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 h-7 text-xs"
+                          onClick={() => void handleExportExecution('markdown')}
+                        >
+                          MD
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 h-7 text-xs"
+                          onClick={() => void handleExportExecution('json')}
+                        >
+                          JSON
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 h-7 text-xs"
+                          onClick={() => void handleExportExecution('csv')}
+                        >
+                          CSV
+                        </Button>
+                      </div>
                     </div>
                   )}
 
@@ -663,6 +838,8 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
                                       className="flex-1 h-7 text-xs"
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        setSelectedSession(session);
+                                        setSelectedExecutionTargetId(null);
                                         setShowAddObservation(true);
                                       }}
                                     >

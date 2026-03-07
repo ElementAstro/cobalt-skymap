@@ -80,6 +80,7 @@ describe('useAladinLoader', () => {
 
     expect(result.current.loadingState.isLoading).toBe(false);
     expect(result.current.loadingState.errorMessage).toBeNull();
+    expect(result.current.loadingState.phase).toBe('idle');
     expect(result.current.engineReady).toBe(false);
   });
 
@@ -112,5 +113,7 @@ describe('useAladinLoader', () => {
 
     expect(result.current.engineReady).toBe(false);
     expect(result.current.loadingState.errorMessage).toBe('Container element not found');
+    expect(result.current.loadingState.phase).toBe('failed');
+    expect(result.current.loadingState.errorCode).toBe('container_not_ready');
   });
 });

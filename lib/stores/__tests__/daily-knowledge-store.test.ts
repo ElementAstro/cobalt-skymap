@@ -72,6 +72,8 @@ function resetDailyStore() {
     lastShownDate: null,
     snoozedDate: null,
     lastSeenItemId: null,
+    viewMode: 'pager',
+    wheelPagingEnabled: false,
     open: false,
     loading: false,
     error: null,
@@ -112,6 +114,19 @@ describe('daily-knowledge-store', () => {
 
     store.toggleFavorite('curated-andromeda-distance');
     expect(useDailyKnowledgeStore.getState().favorites).toHaveLength(0);
+  });
+
+  it('persists reader UI preferences', () => {
+    const store = useDailyKnowledgeStore.getState();
+    expect(store.viewMode).toBe('pager');
+    expect(store.wheelPagingEnabled).toBe(false);
+
+    store.setViewMode('feed');
+    store.setWheelPagingEnabled(true);
+
+    const next = useDailyKnowledgeStore.getState();
+    expect(next.viewMode).toBe('feed');
+    expect(next.wheelPagingEnabled).toBe(true);
   });
 
   it('caps history to 120 entries', () => {

@@ -5,6 +5,8 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ViewBookmarks } from '../view-bookmarks';
 
+const mockToggleGroupContext = React.createContext<(value: string) => void>(() => undefined);
+
 // Mock UI components
 jest.mock('@/components/ui/button', () => ({
   Button: ({ children, onClick, disabled, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) => (
@@ -51,6 +53,41 @@ jest.mock('@/components/ui/separator', () => ({
 jest.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
+
+jest.mock('@/components/ui/toggle-group', () => {
+  return {
+    ToggleGroup: ({ children, onValueChange }: { children: React.ReactNode; onValueChange?: (value: string) => void }) => (
+      <mockToggleGroupContext.Provider value={onValueChange ?? (() => undefined)}>
+        <div role="group">{children}</div>
+      </mockToggleGroupContext.Provider>
+    ),
+    ToggleGroupItem: ({
+      children,
+      value,
+      className,
+      'aria-label': ariaLabel,
+    }: {
+      children: React.ReactNode;
+      value: string;
+      className?: string;
+      'aria-label'?: string;
+    }) => {
+      const handleValueChange = React.useContext(mockToggleGroupContext);
+      return (
+        <button
+          type="button"
+          role="radio"
+          aria-label={ariaLabel}
+          aria-checked={false}
+          className={className}
+          onClick={() => handleValueChange(value)}
+        >
+          {children}
+        </button>
+      );
+    },
+  };
+});
 
 jest.mock('@/components/ui/alert-dialog', () => ({
   AlertDialog: ({ children, open }: { children: React.ReactNode; open?: boolean }) => open ? <div data-testid="alert-dialog">{children}</div> : null,
@@ -440,7 +477,7 @@ describe('ViewBookmarks', () => {
     // Icon selector label should exist
     expect(screen.getByText('bookmarks.icon')).toBeInTheDocument();
     // Should have icon selector buttons (7 icons)
-    const iconButtons = screen.getAllByRole('button').filter(btn => btn.className?.includes('h-8 w-8'));
+    const iconButtons = screen.getAllByRole('radio');
     expect(iconButtons.length).toBe(7);
   });
 
@@ -483,11 +520,10 @@ describe('ViewBookmarks', () => {
     mockBookmarksStore.bookmarks = [];
     render(<ViewBookmarks {...defaultProps} />);
 
-    // Click a different icon button (e.g., the 2nd one = 'heart')
-    const iconButtons = screen.getAllByRole('button').filter(btn => btn.className?.includes('h-8 w-8'));
+    // Click heart icon button
+    const iconButtons = screen.getAllByRole('radio');
     expect(iconButtons.length).toBe(7);
-    // Click heart icon (index 1)
-    fireEvent.click(iconButtons[1]);
+    fireEvent.click(screen.getByRole('radio', { name: 'heart' }));
 
     // Fill name and save to verify the icon was changed
     const nameInput = screen.getByPlaceholderText('bookmarks.namePlaceholder');

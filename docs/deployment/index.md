@@ -293,22 +293,33 @@ SkyMap Test 内置更新机制：
 - 下载更新包
 - 自动安装
 
-### 配置更新服务器
+### GitHub Releases 自动更新
 
-在 `tauri.conf.json` 配置更新地址：
+桌面端自动更新使用 GitHub Releases 作为唯一发布源，并依赖以下文件：
 
-```json
-{
-  "updater": {
-    "active": true,
-    "endpoints": [
-      "https://github.com/yourusername/skymap-test/releases/latest/download"
-    ],
-    "dialog": true,
-    "pubkey": "PUBLIC_KEY_HERE"
-  }
-}
+- `latest.json`
+- 平台对应的 updater 归档
+- 与归档匹配的 `.sig` 签名文件
+
+当前 updater endpoint：
+
+```text
+https://github.com/AstroAir/skymap-test/releases/latest/download/latest.json
 ```
+
+发布时，GitHub Actions 会为 tag 构建动态注入一份临时 Tauri 配置，包含：
+
+- `bundle.createUpdaterArtifacts: true`
+- `plugins.updater.pubkey`
+- `plugins.updater.endpoints`
+
+要使自动更新生效，还需要：
+
+1. 在 GitHub Secrets 中设置 `TAURI_UPDATER_PUBLIC_KEY`
+2. 在 GitHub Secrets 中设置 `TAURI_SIGNING_PRIVATE_KEY`
+3. 在 GitHub Secrets 中设置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+4. 在发布前维护 `CHANGELOG.md` 中对应版本的条目
+5. 将生成的 draft release 人工检查后再 publish
 
 ## 故障排除
 

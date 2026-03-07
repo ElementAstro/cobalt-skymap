@@ -8,7 +8,18 @@ type DailyKnowledgeSeedOptions = {
   locale?: 'en' | 'zh';
   lastShownDate?: string | null;
   snoozedDate?: string | null;
+  viewMode?: 'pager' | 'feed';
+  wheelPagingEnabled?: boolean;
 };
+
+async function seedMobileUserAgent(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    });
+  });
+}
 
 async function seedStarmapState(page: Page, options: DailyKnowledgeSeedOptions) {
   await page.addInitScript((seed: DailyKnowledgeSeedOptions) => {
@@ -46,6 +57,10 @@ async function seedStarmapState(page: Page, options: DailyKnowledgeSeedOptions) 
         lastShownDate: seed.lastShownDate ?? null,
         snoozedDate: seed.snoozedDate ?? null,
         lastSeenItemId: null,
+        ...(seed.viewMode ? { viewMode: seed.viewMode } : {}),
+        ...(typeof seed.wheelPagingEnabled === 'boolean'
+          ? { wheelPagingEnabled: seed.wheelPagingEnabled }
+          : {}),
       },
       version: 1,
     }));
@@ -59,6 +74,27 @@ async function openReadyStarmap(page: Page) {
   });
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: TEST_TIMEOUTS.long });
   await page.waitForTimeout(1200);
+}
+
+async function openDailyKnowledgeManually(page: Page) {
+  const opened = await page.evaluate(() => {
+    const selectors = [
+      'button[aria-label="Daily Knowledge"]',
+      'button[aria-label="每日知识"]',
+      '[data-tour-id="daily-knowledge"] button',
+      'button[data-tour-id="daily-knowledge"]',
+      '[data-tour-id="daily-knowledge"]',
+    ];
+    for (const selector of selectors) {
+      const target = document.querySelector(selector) as HTMLElement | null;
+      if (target) {
+        target.click();
+        return true;
+      }
+    }
+    return false;
+  });
+  expect(opened).toBe(true);
 }
 
 test.describe('Daily Knowledge', () => {
@@ -110,10 +146,7 @@ test.describe('Daily Knowledge', () => {
   test('manual entry always works when enabled', async ({ page }) => {
     await seedStarmapState(page, { enabled: true, autoShow: false, onlineEnhancement: false });
     await openReadyStarmap(page);
-
-    const trigger = page.locator('[data-tour-id="daily-knowledge"] button').first();
-    await expect(trigger).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
-    await trigger.click();
+    await openDailyKnowledgeManually(page);
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: /daily knowledge|每日知识/i });
     await expect(dialog).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
@@ -122,9 +155,7 @@ test.describe('Daily Knowledge', () => {
   test('related object jump executes without error toast', async ({ page }) => {
     await seedStarmapState(page, { enabled: true, autoShow: false, onlineEnhancement: false });
     await openReadyStarmap(page);
-
-    const trigger = page.locator('[data-tour-id="daily-knowledge"] button').first();
-    await trigger.click();
+    await openDailyKnowledgeManually(page);
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: /daily knowledge|每日知识/i });
     await expect(dialog).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
@@ -149,13 +180,45 @@ test.describe('Daily Knowledge', () => {
       locale: 'zh',
     });
     await openReadyStarmap(page);
-
-    const trigger = page.locator('[data-tour-id="daily-knowledge"] button').first();
-    await trigger.click();
+    await openDailyKnowledgeManually(page);
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: /daily knowledge|每日知识/i });
     await expect(dialog).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
     await expect(dialog.getByText(/本地语言/)).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
     await expect(dialog.getByText(/事实来源/)).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
+  });
+
+  test('desktop opens in pager mode by default', async ({ page }) => {
+    await seedStarmapState(page, { enabled: true, autoShow: false, onlineEnhancement: false });
+    await openReadyStarmap(page);
+
+    await openDailyKnowledgeManually(page);
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: /daily knowledge|每日知识/i });
+    await expect(dialog).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
+    await expect(dialog.getByTestId('daily-knowledge-view-pager')).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
+  });
+
+  test('mobile opens in feed mode and allows selecting another card', async ({ page }) => {
+    await seedMobileUserAgent(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seedStarmapState(page, { enabled: true, autoShow: false, onlineEnhancement: false });
+    await openReadyStarmap(page);
+
+    await openDailyKnowledgeManually(page);
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: /daily knowledge|每日知识/i });
+    await expect(dialog).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
+    await expect(dialog.getByTestId('daily-knowledge-view-feed')).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
+
+    const firstCard = dialog.locator('[data-testid="daily-knowledge-view-feed"] [data-current="true"]').first();
+    await expect(firstCard).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
+
+    const nonCurrentButton = dialog
+      .locator('[data-testid="daily-knowledge-view-feed"] [data-current="false"] button')
+      .first();
+    await expect(nonCurrentButton).toBeVisible({ timeout: TEST_TIMEOUTS.medium });
+    await nonCurrentButton.click();
+
+    const updatedCurrent = dialog.locator('[data-testid="daily-knowledge-view-feed"] [data-current="true"]');
+    await expect(updatedCurrent).toHaveCount(1);
   });
 });

@@ -48,7 +48,7 @@ jest.mock('@/components/ui/badge', () => ({
 jest.mock('@/components/ui/select', () => ({
   Select: ({ children }: { children: React.ReactNode }) => <div data-testid="select">{children}</div>,
   SelectContent: ({ children }: { children: React.ReactNode }) => <div data-testid="select-content">{children}</div>,
-  SelectItem: ({ children }: { children: React.ReactNode }) => <option data-testid="select-item">{children}</option>,
+  SelectItem: ({ children }: { children: React.ReactNode }) => <div data-testid="select-item">{children}</div>,
   SelectTrigger: ({ children }: { children: React.ReactNode }) => <div data-testid="select-trigger">{children}</div>,
   SelectValue: () => <span>Select...</span>,
   SelectGroup: ({ children }: { children: React.ReactNode }) => <div data-testid="select-group">{children}</div>,

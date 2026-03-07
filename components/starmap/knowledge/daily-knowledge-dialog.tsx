@@ -41,6 +41,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { DailyKnowledgeCategory, DailyKnowledgeSource } from '@/lib/services/daily-knowledge';
 import { useDailyKnowledgeStore } from '@/lib/stores';
+import { isMobile } from '@/lib/storage/platform';
 import { cn } from '@/lib/utils';
 
 const CATEGORY_OPTIONS: Array<{ value: DailyKnowledgeCategory | 'all'; labelKey: string }> = [
@@ -61,6 +62,7 @@ const SOURCE_OPTIONS: Array<{ value: DailyKnowledgeSource | 'all'; labelKey: str
 ];
 
 export function DailyKnowledgeDialog() {
+  const WHEEL_THROTTLE_MS = 300;
   const t = useTranslations();
   const open = useDailyKnowledgeStore((state) => state.open);
   const loading = useDailyKnowledgeStore((state) => state.loading);
@@ -81,12 +83,54 @@ export function DailyKnowledgeDialog() {
   const markDontShowToday = useDailyKnowledgeStore((state) => state.markDontShowToday);
   const goToRelatedObject = useDailyKnowledgeStore((state) => state.goToRelatedObject);
   const recordHistory = useDailyKnowledgeStore((state) => state.recordHistory);
+  const viewMode = useDailyKnowledgeStore((state) => state.viewMode);
+  const setViewMode = useDailyKnowledgeStore((state) => state.setViewMode);
+  const wheelPagingEnabled = useDailyKnowledgeStore((state) => state.wheelPagingEnabled);
+  const setWheelPagingEnabled = useDailyKnowledgeStore((state) => state.setWheelPagingEnabled);
+  const isMobileDevice = useMemo(() => isMobile(), []);
+  const lastWheelAtRef = useRef(0);
 
   useEffect(() => {
     if (open && items.length === 0) {
       void loadDaily('manual');
     }
   }, [items.length, loadDaily, open]);
+
+  useEffect(() => {
+    if (!open || loading || viewMode !== 'pager') return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      if (event.key === 'ArrowLeft') {
+        prev();
+      } else if (event.key === 'ArrowRight') {
+        next();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [loading, next, open, prev, viewMode]);
+
+  useEffect(() => {
+    if (!open || loading || viewMode !== 'pager' || isMobileDevice || !wheelPagingEnabled) return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 24) return;
+      const now = Date.now();
+      if (now - lastWheelAtRef.current < WHEEL_THROTTLE_MS) return;
+      lastWheelAtRef.current = now;
+      if (event.deltaY > 0) {
+        next();
+      } else {
+        prev();
+      }
+    };
+
+    window.addEventListener('wheel', onWheel, { passive: true });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, [isMobileDevice, loading, next, open, prev, viewMode, wheelPagingEnabled]);
 
   const favoriteIds = useMemo(() => new Set(favorites.map((entry) => entry.itemId)), [favorites]);
   const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
@@ -198,7 +242,7 @@ export function DailyKnowledgeDialog() {
           <DialogDescription>{t('dailyKnowledge.subtitle')}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto_auto]">
           <SearchInput
             value={filters.query}
             onChange={(value) => setFilters({ query: value })}
@@ -243,6 +287,26 @@ export function DailyKnowledgeDialog() {
             <Heart className={cn('h-4 w-4', filters.favoritesOnly && 'fill-current')} />
             {t('dailyKnowledge.favorites')}
           </Toggle>
+          <div className="flex items-center gap-1 md:justify-self-end" role="group" aria-label="view-mode">
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === 'pager' ? 'default' : 'outline'}
+              onClick={() => setViewMode('pager')}
+              data-testid="daily-knowledge-mode-pager"
+            >
+              {t('dailyKnowledge.viewModePager')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === 'feed' ? 'default' : 'outline'}
+              onClick={() => setViewMode('feed')}
+              data-testid="daily-knowledge-mode-feed"
+            >
+              {t('dailyKnowledge.viewModeFeed')}
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -302,6 +366,16 @@ export function DailyKnowledgeDialog() {
               </ScrollArea>
             </PopoverContent>
           </Popover>
+          {viewMode === 'pager' && !isMobileDevice && (
+            <Toggle
+              variant="outline"
+              pressed={wheelPagingEnabled}
+              onPressedChange={(pressed) => setWheelPagingEnabled(pressed)}
+              aria-label={t('dailyKnowledge.wheelPaging')}
+            >
+              {t('dailyKnowledge.wheelPaging')}
+            </Toggle>
+          )}
           <div className="ml-auto text-xs text-muted-foreground">
             {t('dailyKnowledge.resultCount', { count: filteredItems.length })}
           </div>
@@ -334,8 +408,42 @@ export function DailyKnowledgeDialog() {
           <EmptyState icon={SearchX} message={t('dailyKnowledge.noResults')} />
         )}
 
-        {!loading && !error && effectiveItem && (
-          <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
+        {!loading && !error && effectiveItem && viewMode === 'feed' && (
+          <ScrollArea className="h-[28rem] pr-2" data-testid="daily-knowledge-view-feed">
+            <div className="space-y-3">
+              {filteredItems.map((item) => {
+                const isCurrent = currentItem?.id === item.id;
+                return (
+                  <Card key={item.id} className={cn(isCurrent && 'border-primary')} data-current={isCurrent}>
+                    <CardHeader className="pb-2">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentItemById(item.id)}
+                        className="text-left text-base font-semibold hover:underline"
+                      >
+                        {item.title}
+                      </button>
+                    </CardHeader>
+                    <CardContent className="pt-0 space-y-2">
+                      <p className="text-sm text-muted-foreground">{item.summary}</p>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="secondary">{t(`dailyKnowledge.sourceBadge.${item.source}`)}</Badge>
+                        {item.categories.map((category) => (
+                          <Badge key={`${item.id}-${category}`} variant="outline">
+                            {t(`dailyKnowledge.categoryBadge.${category}`)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        )}
+
+        {!loading && !error && effectiveItem && viewMode === 'pager' && (
+          <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]" data-testid="daily-knowledge-view-pager">
             <div className="space-y-3">
               <div className="flex flex-wrap items-start gap-2">
                 <h3 className="text-xl font-semibold">{effectiveItem.title}</h3>

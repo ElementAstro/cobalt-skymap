@@ -6,8 +6,13 @@
 import { renderHook, act } from '@testing-library/react';
 import { useTargetListActions } from '../use-target-list-actions';
 import type { SearchResultItem } from '@/lib/core/types';
+import { useTargetListStore } from '@/lib/stores/target-list-store';
 
 describe('useTargetListActions', () => {
+  beforeEach(() => {
+    useTargetListStore.getState().clearAll();
+  });
+
   it('should return action handlers', () => {
     const { result } = renderHook(() => useTargetListActions());
     expect(typeof result.current.handleAddToTargetList).toBe('function');
@@ -58,5 +63,27 @@ describe('useTargetListActions', () => {
 
     expect(getSelectedItems).toHaveBeenCalled();
     expect(clearSelection).toHaveBeenCalled();
+  });
+
+  it('adds targets to the provided destination list', () => {
+    const activeListId = useTargetListStore.getState().activeListId;
+    const destinationListId = useTargetListStore.getState().createList({ name: 'Secondary' });
+    const item: SearchResultItem = {
+      Name: 'M31',
+      Type: 'DSO',
+      RA: 10.68,
+      Dec: 41.27,
+    };
+
+    const { result } = renderHook(() =>
+      useTargetListActions({ targetListId: destinationListId })
+    );
+
+    act(() => {
+      result.current.handleAddToTargetList(item);
+    });
+
+    expect(useTargetListStore.getState().getEntriesForList(destinationListId)).toHaveLength(1);
+    expect(useTargetListStore.getState().getEntriesForList(activeListId)).toHaveLength(0);
   });
 });

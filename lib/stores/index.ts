@@ -159,6 +159,8 @@ export { usePlanningUiStore } from './planning-ui-store';
 // Session plan store
 export {
   useSessionPlanStore,
+  type PlannedSessionExecution,
+  type PlannedSessionExecutionTarget,
   type SavedSessionPlan,
   type SavedScheduledTarget,
   type SavedSessionTemplate,

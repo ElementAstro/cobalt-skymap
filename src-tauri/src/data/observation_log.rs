@@ -11,6 +11,34 @@ use super::storage::StorageError;
 use crate::utils::generate_id;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionTarget {
+    pub id: String,
+    pub target_id: String,
+    pub target_name: String,
+    pub scheduled_start: DateTime<Utc>,
+    pub scheduled_end: DateTime<Utc>,
+    pub scheduled_duration_minutes: i64,
+    pub order: usize,
+    pub status: String,
+    pub observation_ids: Vec<String>,
+    pub actual_start: Option<DateTime<Utc>>,
+    pub actual_end: Option<DateTime<Utc>>,
+    pub result_notes: Option<String>,
+    pub skip_reason: Option<String>,
+    pub completion_summary: Option<String>,
+    pub unplanned: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionSummary {
+    pub completed_targets: usize,
+    pub skipped_targets: usize,
+    pub failed_targets: usize,
+    pub total_targets: usize,
+    pub total_observations: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservationSession {
     pub id: String,
     pub date: NaiveDate,
@@ -26,6 +54,12 @@ pub struct ObservationSession {
     pub bortle_class: Option<u8>,
     pub notes: Option<String>,
     pub observations: Vec<Observation>,
+    pub source_plan_id: Option<String>,
+    pub source_plan_name: Option<String>,
+    pub execution_status: Option<String>,
+    pub execution_targets: Option<Vec<ExecutionTarget>>,
+    pub weather_snapshot: Option<serde_json::Value>,
+    pub execution_summary: Option<ExecutionSummary>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -59,6 +93,40 @@ pub struct Observation {
     pub notes: Option<String>,
     pub sketch_path: Option<String>,
     pub image_paths: Vec<String>,
+    pub execution_target_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePlannedSessionTarget {
+    pub id: String,
+    pub target_id: String,
+    pub target_name: String,
+    pub scheduled_start: String,
+    pub scheduled_end: String,
+    pub scheduled_duration_minutes: i64,
+    pub order: usize,
+    pub status: String,
+    pub observation_ids: Vec<String>,
+    pub actual_start: Option<String>,
+    pub actual_end: Option<String>,
+    pub result_notes: Option<String>,
+    pub skip_reason: Option<String>,
+    pub completion_summary: Option<String>,
+    pub unplanned: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePlannedSessionPayload {
+    pub plan_date: String,
+    pub location_id: Option<String>,
+    pub location_name: Option<String>,
+    pub source_plan_id: String,
+    pub source_plan_name: String,
+    pub notes: Option<String>,
+    pub weather_snapshot: Option<serde_json::Value>,
+    pub execution_targets: Vec<CreatePlannedSessionTarget>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -83,6 +151,57 @@ fn get_log_path(app: &AppHandle) -> Result<PathBuf, StorageError> {
     Ok(dir.join("observation_log.json"))
 }
 
+fn invalid_data_error(message: String) -> StorageError {
+    StorageError::Json(serde_json::Error::io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        message,
+    )))
+}
+
+fn parse_session_date(value: &str) -> Result<NaiveDate, StorageError> {
+    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        return Ok(date);
+    }
+
+    if let Ok(date_time) = chrono::DateTime::parse_from_rfc3339(value) {
+        return Ok(date_time.naive_utc().date());
+    }
+
+    Err(invalid_data_error(format!("Invalid session date: {value}")))
+}
+
+fn parse_execution_datetime(value: &str) -> Result<DateTime<Utc>, StorageError> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|date_time| date_time.with_timezone(&Utc))
+        .map_err(|error| invalid_data_error(error.to_string()))
+}
+
+fn map_planned_target(target: CreatePlannedSessionTarget) -> Result<ExecutionTarget, StorageError> {
+    Ok(ExecutionTarget {
+        id: target.id,
+        target_id: target.target_id,
+        target_name: target.target_name,
+        scheduled_start: parse_execution_datetime(&target.scheduled_start)?,
+        scheduled_end: parse_execution_datetime(&target.scheduled_end)?,
+        scheduled_duration_minutes: target.scheduled_duration_minutes,
+        order: target.order,
+        status: target.status,
+        observation_ids: target.observation_ids,
+        actual_start: target.actual_start
+            .as_deref()
+            .map(parse_execution_datetime)
+            .transpose()?,
+        actual_end: target.actual_end
+            .as_deref()
+            .map(parse_execution_datetime)
+            .transpose()?,
+        result_notes: target.result_notes,
+        skip_reason: target.skip_reason,
+        completion_summary: target.completion_summary,
+        unplanned: target.unplanned,
+    })
+}
+
 #[tauri::command]
 pub async fn load_observation_log(app: AppHandle) -> Result<ObservationLogData, StorageError> {
     let path = get_log_path(&app)?;
@@ -102,15 +221,59 @@ pub async fn save_observation_log(app: AppHandle, log: ObservationLogData) -> Re
 #[tauri::command]
 pub async fn create_session(app: AppHandle, date: String, location_id: Option<String>, location_name: Option<String>) -> Result<ObservationSession, StorageError> {
     let mut log = load_observation_log(app.clone()).await?;
-    let date = NaiveDate::parse_from_str(&date, "%Y-%m-%d")
-        .map_err(|e| StorageError::Json(serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))))?;
+    let date = parse_session_date(&date)?;
 
     let session = ObservationSession {
         id: generate_id("session"), date, location_id, location_name,
         start_time: Some(Utc::now()), end_time: None, weather: None,
         seeing: None, transparency: None, equipment_ids: Vec::new(),
-        bortle_class: None, notes: None, observations: Vec::new(), created_at: Utc::now(), updated_at: Utc::now(),
+        bortle_class: None, notes: None, observations: Vec::new(),
+        source_plan_id: None, source_plan_name: None, execution_status: None, execution_targets: None,
+        weather_snapshot: None, execution_summary: None, created_at: Utc::now(), updated_at: Utc::now(),
     };
+    log.sessions.push(session.clone());
+    save_observation_log(app, log).await?;
+    Ok(session)
+}
+
+#[tauri::command]
+pub async fn create_planned_session(
+    app: AppHandle,
+    payload: CreatePlannedSessionPayload,
+) -> Result<ObservationSession, StorageError> {
+    let mut log = load_observation_log(app.clone()).await?;
+    let date = parse_session_date(&payload.plan_date)?;
+    let execution_targets = payload
+        .execution_targets
+        .into_iter()
+        .map(map_planned_target)
+        .collect::<Result<Vec<_>, _>>()?;
+    let now = Utc::now();
+
+    let session = ObservationSession {
+        id: generate_id("session"),
+        date,
+        location_id: payload.location_id,
+        location_name: payload.location_name,
+        start_time: Some(now),
+        end_time: None,
+        weather: None,
+        seeing: None,
+        transparency: None,
+        equipment_ids: Vec::new(),
+        bortle_class: None,
+        notes: payload.notes,
+        observations: Vec::new(),
+        source_plan_id: Some(payload.source_plan_id),
+        source_plan_name: Some(payload.source_plan_name),
+        execution_status: Some("active".to_string()),
+        execution_targets: Some(execution_targets),
+        weather_snapshot: payload.weather_snapshot,
+        execution_summary: None,
+        created_at: now,
+        updated_at: now,
+    };
+
     log.sessions.push(session.clone());
     save_observation_log(app, log).await?;
     Ok(session)
@@ -147,6 +310,12 @@ pub async fn update_session(app: AppHandle, session: ObservationSession) -> Resu
         existing.equipment_ids = session.equipment_ids;
         existing.bortle_class = session.bortle_class;
         existing.notes = session.notes;
+        existing.source_plan_id = session.source_plan_id;
+        existing.source_plan_name = session.source_plan_name;
+        existing.execution_status = session.execution_status;
+        existing.execution_targets = session.execution_targets;
+        existing.weather_snapshot = session.weather_snapshot;
+        existing.execution_summary = session.execution_summary;
         existing.updated_at = Utc::now();
         let result = existing.clone();
         save_observation_log(app, log).await?;
@@ -400,6 +569,7 @@ mod tests {
             notes: Some("Beautiful spiral structure".to_string()),
             sketch_path: None,
             image_paths: vec!["img1.jpg".to_string()],
+            execution_target_id: None,
         };
 
         let json = serde_json::to_string(&obs).unwrap();
@@ -457,6 +627,12 @@ mod tests {
             bortle_class: Some(3),
             notes: Some("Clear night".to_string()),
             observations: vec![],
+            source_plan_id: None,
+            source_plan_name: None,
+            execution_status: None,
+            execution_targets: None,
+            weather_snapshot: None,
+            execution_summary: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -492,6 +668,30 @@ mod tests {
         assert!(session.end_time.is_some());
     }
 
+    #[test]
+    fn test_observation_session_deserializes_without_execution_fields() {
+        let json = r##"{
+            "id": "s1",
+            "date": "2026-03-06",
+            "location_id": null,
+            "location_name": "Backyard",
+            "start_time": null,
+            "end_time": null,
+            "weather": null,
+            "seeing": null,
+            "transparency": null,
+            "equipment_ids": [],
+            "notes": null,
+            "observations": [],
+            "created_at": "2026-03-06T12:00:00Z",
+            "updated_at": "2026-03-06T12:00:00Z"
+        }"##;
+
+        let session: ObservationSession = serde_json::from_str(json).unwrap();
+        assert!(session.source_plan_id.is_none());
+        assert!(session.execution_targets.is_none());
+    }
+
     // ------------------------------------------------------------------------
     // ObservationLogData Tests
     // ------------------------------------------------------------------------
@@ -519,6 +719,12 @@ mod tests {
             bortle_class: None,
             notes: None,
             observations: vec![],
+            source_plan_id: None,
+            source_plan_name: None,
+            execution_status: None,
+            execution_targets: None,
+            weather_snapshot: None,
+            execution_summary: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         });
@@ -599,6 +805,12 @@ mod tests {
             bortle_class: Some(2),
             notes: Some("Perfect conditions".to_string()),
             observations: vec![],
+            source_plan_id: None,
+            source_plan_name: None,
+            execution_status: None,
+            execution_targets: None,
+            weather_snapshot: None,
+            execution_summary: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -633,6 +845,7 @@ mod tests {
                 "img2.fits".to_string(),
                 "img3.fits".to_string(),
             ],
+            execution_target_id: None,
         };
 
         let json = serde_json::to_string(&obs).unwrap();
@@ -675,6 +888,7 @@ mod tests {
                     notes: None,
                     sketch_path: None,
                     image_paths: vec![],
+                    execution_target_id: None,
                 },
                 Observation {
                     id: "o2".to_string(),
@@ -694,8 +908,15 @@ mod tests {
                     notes: None,
                     sketch_path: None,
                     image_paths: vec![],
+                    execution_target_id: None,
                 },
             ],
+            source_plan_id: None,
+            source_plan_name: None,
+            execution_status: None,
+            execution_targets: None,
+            weather_snapshot: None,
+            execution_summary: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

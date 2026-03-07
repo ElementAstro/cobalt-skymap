@@ -34,6 +34,13 @@ jest.mock('sonner', () => ({
   },
 }));
 
+jest.mock('next/image', () => {
+  const MockImage = (props: Record<string, unknown>) =>
+    React.createElement('img', { ...props });
+  MockImage.displayName = 'MockImage';
+  return { __esModule: true, default: MockImage };
+});
+
 // Helper: fill all required bug fields
 function fillBugFields() {
   fireEvent.change(screen.getByTestId('feedback-title-input'), { target: { value: 'Test bug title' } });
@@ -410,5 +417,100 @@ describe('FeedbackDialog', () => {
       expect(mockOpenExternalUrl).toHaveBeenCalled();
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+  });
+
+  // ========================================================================
+  // Draft reset after submit
+  // ========================================================================
+
+  it('resets draft after successful submit', async () => {
+    mockOpenExternalUrl.mockResolvedValue(undefined);
+
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+    fillBugFields();
+
+    fireEvent.click(screen.getByTestId('feedback-submit-button'));
+
+    await waitFor(() => {
+      expect(mockOpenExternalUrl).toHaveBeenCalled();
+    });
+
+    const { draft } = useFeedbackStore.getState();
+    expect(draft.title).toBe('');
+    expect(draft.description).toBe('');
+  });
+
+  // ========================================================================
+  // Reset button
+  // ========================================================================
+
+  it('resets form when reset button is clicked', () => {
+    useFeedbackStore.setState((state) => ({
+      draft: { ...state.draft, title: 'Some title', description: 'Some desc' },
+    }));
+
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+
+    fireEvent.click(screen.getByTestId('feedback-reset-button'));
+
+    expect(toast.info).toHaveBeenCalledWith('feedback.toast.draftCleared');
+    const { draft } = useFeedbackStore.getState();
+    expect(draft.title).toBe('');
+    expect(draft.description).toBe('');
+  });
+
+  // ========================================================================
+  // Severity / Priority select
+  // ========================================================================
+
+  it('renders severity select for bug type', () => {
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+    expect(screen.getByTestId('feedback-severity-select')).toBeInTheDocument();
+  });
+
+  it('renders priority select for feature type', () => {
+    useFeedbackStore.setState((state) => ({
+      draft: { ...state.draft, type: 'feature' },
+    }));
+
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+    expect(screen.getByTestId('feedback-priority-select')).toBeInTheDocument();
+  });
+
+  // ========================================================================
+  // Keyboard shortcut (Ctrl+Enter)
+  // ========================================================================
+
+  it('submits on Ctrl+Enter when form is valid', async () => {
+    mockOpenExternalUrl.mockResolvedValue(undefined);
+
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+    fillBugFields();
+
+    const dialogContent = screen.getByTestId('feedback-submit-button').closest('[data-slot="dialog-content"]');
+    expect(dialogContent).toBeTruthy();
+    fireEvent.keyDown(dialogContent!, { key: 'Enter', ctrlKey: true });
+
+    await waitFor(() => {
+      expect(mockOpenExternalUrl).toHaveBeenCalled();
+    });
+  });
+
+  // ========================================================================
+  // Screenshot button
+  // ========================================================================
+
+  it('renders screenshot capture button', () => {
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+    expect(screen.getByTestId('feedback-screenshot-button')).toBeInTheDocument();
+  });
+
+  // ========================================================================
+  // Preview toggle
+  // ========================================================================
+
+  it('renders preview toggle button', () => {
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+    expect(screen.getByTestId('feedback-preview-toggle')).toBeInTheDocument();
   });
 });

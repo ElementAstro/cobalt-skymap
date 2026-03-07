@@ -508,6 +508,11 @@ export function SessionPlanner() {
   const loadTemplate = useSessionPlanStore((state) => state.loadTemplate);
   const importPlanV2 = useSessionPlanStore((state) => state.importPlanV2);
   const deleteSavedPlan = useSessionPlanStore((state) => state.deletePlan);
+  const executions = useSessionPlanStore((state) => state.executions);
+  const activeExecutionId = useSessionPlanStore((state) => state.activeExecutionId);
+  const syncExecutionFromObservationSession = useSessionPlanStore((state) => state.syncExecutionFromObservationSession);
+  const setActiveExecution = useSessionPlanStore((state) => state.setActiveExecution);
+  const createExecutionFromPlan = useSessionPlanStore((state) => state.createExecutionFromPlan);
   const [showSavedPlans, setShowSavedPlans] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   
@@ -929,6 +934,30 @@ export function SessionPlanner() {
     }),
     [plan, orderedTargets],
   );
+
+  const currentTargetSignature = useMemo(
+    () => displayedPlan.targets.map((target) => target.target.id).join('|'),
+    [displayedPlan.targets],
+  );
+
+  const relatedSavedPlan = useMemo(
+    () => savedPlans.find((saved) => (
+      new Date(saved.planDate).toDateString() === planDate.toDateString()
+      && saved.targets.map((target) => target.targetId).join('|') === currentTargetSignature
+    )) ?? null,
+    [currentTargetSignature, planDate, savedPlans],
+  );
+
+  const relatedExecution = useMemo(
+    () => {
+      if (!relatedSavedPlan) return null;
+      return executions.find((execution) => (
+        execution.sourcePlanId === relatedSavedPlan.id
+        && execution.status !== 'archived'
+      )) ?? null;
+    },
+    [executions, relatedSavedPlan],
+  );
   
   // Get excluded targets for display
   const excludedTargets = useMemo(
@@ -971,9 +1000,9 @@ export function SessionPlanner() {
   }, [setActiveTarget, setViewDirection]);
   
   const handleSavePlan = useCallback(() => {
-    if (displayedPlan.targets.length === 0) return;
+    if (displayedPlan.targets.length === 0) return null;
     const dateStr = planDate.toLocaleDateString();
-    savePlan({
+    const savedPlanId = savePlan({
       name: `${t('sessionPlanner.title')} - ${dateStr}`,
       planDate: planDate.toISOString(),
       latitude,
@@ -1005,7 +1034,108 @@ export function SessionPlanner() {
       manualEdits: Object.values(manualEdits),
     });
     toast.success(t('sessionPlanner.planSaved'));
+    return savedPlanId;
   }, [constraints, displayedPlan, excludedIds, latitude, longitude, manualEdits, minAltitude, minImagingTime, planDate, planningMode, savePlan, sessionNotes, strategy, t, weatherSnapshot]);
+
+  const handleStartExecution = useCallback(async () => {
+    if (displayedPlan.targets.length === 0) return;
+
+    const savedPlanId = handleSavePlan();
+    if (!savedPlanId) return;
+
+    const dateStr = planDate.toLocaleDateString();
+    const planName = `${t('sessionPlanner.title')} - ${dateStr}`;
+    const executionTargets = displayedPlan.targets.map((target) => ({
+      id: `${savedPlanId}-${target.target.id}`,
+      targetId: target.target.id,
+      targetName: target.target.name,
+      scheduledStart: target.startTime.toISOString(),
+      scheduledEnd: target.endTime.toISOString(),
+      scheduledDurationMinutes: Math.max(1, Math.round(target.duration * 60)),
+      order: target.order,
+      status: 'planned' as const,
+      observationIds: [],
+    }));
+
+    try {
+      if (isTauri()) {
+        const session = await tauriApi.observationLog.createPlannedSession({
+          planDate: planDate.toISOString().slice(0, 10),
+          sourcePlanId: savedPlanId,
+          sourcePlanName: planName,
+          notes: sessionNotes || undefined,
+          weatherSnapshot,
+          executionTargets,
+        });
+        syncExecutionFromObservationSession(session);
+      } else {
+        createExecutionFromPlan({
+          id: savedPlanId,
+          name: planName,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          planDate: planDate.toISOString(),
+          latitude,
+          longitude,
+          strategy,
+          minAltitude,
+          minImagingTime,
+          constraints,
+          planningMode,
+          targets: displayedPlan.targets.map((target) => ({
+            targetId: target.target.id,
+            targetName: target.target.name,
+            ra: target.target.ra,
+            dec: target.target.dec,
+            startTime: target.startTime.toISOString(),
+            endTime: target.endTime.toISOString(),
+            duration: target.duration,
+            maxAltitude: target.maxAltitude,
+            moonDistance: target.moonDistance,
+            feasibilityScore: target.feasibility.score,
+            order: target.order,
+          })),
+          excludedTargetIds: Array.from(excludedIds),
+          totalImagingTime: displayedPlan.totalImagingTime,
+          nightCoverage: displayedPlan.nightCoverage,
+          efficiency: displayedPlan.efficiency,
+          notes: sessionNotes || undefined,
+          weatherSnapshot,
+          manualEdits: Object.values(manualEdits),
+        }, {
+          status: 'active',
+        });
+      }
+
+      toast.success(t('sessionPlanner.executionStarted'));
+    } catch {
+      toast.error(t('sessionPlanner.executionStartFailed'));
+    }
+  }, [
+    constraints,
+    createExecutionFromPlan,
+    displayedPlan,
+    excludedIds,
+    handleSavePlan,
+    latitude,
+    longitude,
+    manualEdits,
+    minAltitude,
+    minImagingTime,
+    planDate,
+    planningMode,
+    sessionNotes,
+    strategy,
+    syncExecutionFromObservationSession,
+    t,
+    weatherSnapshot,
+  ]);
+
+  const handleContinueExecution = useCallback(() => {
+    if (!relatedExecution) return;
+    setActiveExecution(relatedExecution.id);
+    toast.success(t('sessionPlanner.executionResumed'));
+  }, [relatedExecution, setActiveExecution, t]);
 
   const handleSaveTemplate = useCallback(() => {
     const draft: SessionDraftV2 = {
@@ -1219,6 +1349,18 @@ export function SessionPlanner() {
           </DialogTitle>
           <DialogDescription>{t('sessionPlanner.dialogDescription')}</DialogDescription>
         </DialogHeader>
+
+        {relatedExecution && (
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+            <div className="flex items-center gap-2">
+              <Timer className="h-4 w-4 text-primary" />
+              <span>{t('sessionPlanner.executionStatusLabel')}</span>
+            </div>
+            <Badge variant={activeExecutionId === relatedExecution.id ? 'default' : 'secondary'}>
+              {t(`sessionPlanner.executionStatus.${relatedExecution.status}`)}
+            </Badge>
+          </div>
+        )}
         
         {/* Night & Equipment Overview */}
         <div className="space-y-2">
@@ -1780,6 +1922,22 @@ export function SessionPlanner() {
               </TooltipTrigger>
               <TooltipContent>{t('sessionPlanner.savePlanTooltip')}</TooltipContent>
             </Tooltip>
+            {relatedExecution ? (
+              <Button variant="secondary" size="sm" onClick={handleContinueExecution}>
+                <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
+                {t('sessionPlanner.continueExecution')}
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleStartExecution()}
+                disabled={displayedPlan.targets.length === 0}
+              >
+                <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
+                {t('sessionPlanner.startExecution')}
+              </Button>
+            )}
             {savedPlans.length > 0 && (
               <Popover open={showSavedPlans} onOpenChange={setShowSavedPlans}>
                 <PopoverTrigger asChild>

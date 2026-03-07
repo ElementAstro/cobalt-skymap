@@ -178,7 +178,7 @@ describe('AppearanceSettings', () => {
   it('can switch editing mode and write to light palette', () => {
     render(<AppearanceSettings />);
 
-    const lightButtons = screen.getAllByRole('button', { name: 'settingsNew.appearance.light' });
+    const lightButtons = screen.getAllByRole('radio', { name: 'settingsNew.appearance.light' });
     fireEvent.click(lightButtons[lightButtons.length - 1]);
     const inputs = screen.getAllByPlaceholderText('theme.colorValuePlaceholder');
     fireEvent.change(inputs[0], { target: { value: '#abcdef' } });

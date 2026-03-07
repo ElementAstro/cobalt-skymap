@@ -18,6 +18,7 @@ import type {
   ObservationSession,
   Observation,
   ObservationStats,
+  CreatePlannedSessionPayload,
   TargetExportItem,
   ImportTargetsResult,
   ExportFormat,
@@ -189,6 +190,13 @@ export const observationLogApi = {
   ): Promise<ObservationSession> {
     const invoke = await getInvoke();
     return invoke('create_session', { date, locationId, locationName });
+  },
+
+  async createPlannedSession(
+    payload: CreatePlannedSessionPayload,
+  ): Promise<ObservationSession> {
+    const invoke = await getInvoke();
+    return invoke('create_planned_session', { payload });
   },
 
   async addObservation(

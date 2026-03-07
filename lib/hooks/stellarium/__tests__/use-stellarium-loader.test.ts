@@ -100,6 +100,7 @@ describe('useStellariumLoader', () => {
 
     expect(result.current.loadingState).toBeDefined();
     expect(result.current.engineReady).toBe(false);
+    expect(result.current.loadingState.phase).toBe('preparing');
   });
 
   it('should stop retrying and surface overall timeout when canvas/container never become ready', async () => {
@@ -123,6 +124,8 @@ describe('useStellariumLoader', () => {
     await waitFor(() => {
       expect(result.current.loadingState.errorMessage).toBe('overallTimeout');
       expect(result.current.loadingState.isLoading).toBe(false);
+      expect(result.current.loadingState.phase).toBe('timed_out');
+      expect(result.current.loadingState.errorCode).toBe('overall_timeout');
     });
   });
 });

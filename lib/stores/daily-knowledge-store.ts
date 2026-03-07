@@ -14,6 +14,7 @@ import type {
 import { useSettingsStore } from './settings-store';
 import { useStellariumStore } from './stellarium-store';
 import { resolveObjectName } from '@/lib/services/online-search-service';
+import { isMobile } from '@/lib/storage/platform';
 
 export function getLocalDateKey(date: Date = new Date()): string {
   const year = date.getFullYear();
@@ -35,6 +36,8 @@ interface DailyKnowledgePersistedState {
   lastShownDate: string | null;
   snoozedDate: string | null;
   lastSeenItemId: string | null;
+  viewMode: 'pager' | 'feed';
+  wheelPagingEnabled: boolean;
 }
 
 interface DailyKnowledgeState extends DailyKnowledgePersistedState {
@@ -59,6 +62,8 @@ interface DailyKnowledgeState extends DailyKnowledgePersistedState {
   goToRelatedObject: (related: { name: string; ra?: number; dec?: number }) => Promise<void>;
   setFilters: (filters: Partial<DailyKnowledgeFilters>) => void;
   setCurrentItemById: (itemId: string) => void;
+  setViewMode: (mode: 'pager' | 'feed') => void;
+  setWheelPagingEnabled: (enabled: boolean) => void;
   shouldAutoShowToday: () => boolean;
   hydrateFromImport: (state: Partial<DailyKnowledgePersistedState>) => void;
 }
@@ -77,6 +82,8 @@ export const useDailyKnowledgeStore = create<DailyKnowledgeState>()(
       lastShownDate: null,
       snoozedDate: null,
       lastSeenItemId: null,
+      viewMode: isMobile() ? 'feed' : 'pager',
+      wheelPagingEnabled: false,
       open: false,
       loading: false,
       error: null,
@@ -229,6 +236,10 @@ export const useDailyKnowledgeStore = create<DailyKnowledgeState>()(
         set({ currentItem: item, lastSeenItemId: item.id });
       },
 
+      setViewMode: (mode) => set({ viewMode: mode }),
+
+      setWheelPagingEnabled: (enabled) => set({ wheelPagingEnabled: enabled }),
+
       shouldAutoShowToday: () => {
         const settings = useSettingsStore.getState().preferences;
         if (!settings.dailyKnowledgeEnabled || !settings.dailyKnowledgeAutoShow) return false;
@@ -245,6 +256,8 @@ export const useDailyKnowledgeStore = create<DailyKnowledgeState>()(
           lastShownDate: state.lastShownDate ?? prev.lastShownDate,
           snoozedDate: state.snoozedDate ?? prev.snoozedDate,
           lastSeenItemId: state.lastSeenItemId ?? prev.lastSeenItemId,
+          viewMode: state.viewMode ?? prev.viewMode,
+          wheelPagingEnabled: state.wheelPagingEnabled ?? prev.wheelPagingEnabled,
         })),
     }),
     {
@@ -257,6 +270,8 @@ export const useDailyKnowledgeStore = create<DailyKnowledgeState>()(
         lastShownDate: state.lastShownDate,
         snoozedDate: state.snoozedDate,
         lastSeenItemId: state.lastSeenItemId,
+        viewMode: state.viewMode,
+        wheelPagingEnabled: state.wheelPagingEnabled,
       }),
     }
   )

@@ -97,25 +97,47 @@ pnpm tauri build
 
 ## 自动更新
 
-### 配置更新服务器
+### GitHub Releases 更新源
 
-```json
-{
-  "plugins": {
-    "updater": {
-      "active": true,
-      "endpoints": ["https://releases.example.com/{{target}}/{{current_version}}"],
-      "pubkey": "YOUR_PUBLIC_KEY"
-    }
-  }
-}
+Windows 自动更新依赖 GitHub Releases 中的以下文件：
+
+- `latest.json`
+- `SkyMap_*.zip`
+- `SkyMap_*.zip.sig`
+
+当前 updater endpoint：
+
+```text
+https://github.com/AstroAir/skymap-test/releases/latest/download/latest.json
 ```
+
+发布时由 GitHub Actions 动态注入临时 Tauri 配置，而不是直接把公钥硬编码到仓库默认配置中。该临时配置会启用：
+
+- `plugins.updater.pubkey`
+- `plugins.updater.endpoints`
+- `bundle.createUpdaterArtifacts`
 
 ### 生成更新签名
 
 ```powershell
 pnpm tauri signer generate -w
 ```
+
+将生成的密钥配置到 GitHub Secrets：
+
+- `TAURI_UPDATER_PUBLIC_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+### 发布要求
+
+1. 在 `CHANGELOG.md` 中添加目标版本条目
+2. 确保版本号与 Git tag 一致
+3. 推送 `vX.Y.Z` tag
+4. 检查 draft release 中是否包含安装包、`.zip`、`.sig` 和 `latest.json`
+5. 手动发布 draft release
+
+只有正式发布后的 release 才会被应用内自动更新检测到。
 
 ## 便携版
 
@@ -176,7 +198,7 @@ pnpm tauri signer generate -w
 
 1. 上传到 GitHub Releases
 2. 提供 MSI 和 EXE 两种格式
-3. 包含校验和文件
+3. 同时提供 updater `.zip`、`.sig` 和 `latest.json`
 
 ## 相关文档
 

@@ -99,9 +99,9 @@ describe('PREFETCH_RESOURCES', () => {
     expect(Array.isArray(PREFETCH_RESOURCES)).toBe(true);
   });
 
-  it('should contain critical resources', () => {
-    const hasWasm = PREFETCH_RESOURCES.some(p => p.includes('.wasm'));
-    expect(hasWasm).toBe(true);
+  it('should contain the stellarium engine bootstrap script', () => {
+    const hasEngineScript = PREFETCH_RESOURCES.some((p) => p.includes('stellarium-web-engine.js'));
+    expect(hasEngineScript).toBe(true);
   });
 });
 

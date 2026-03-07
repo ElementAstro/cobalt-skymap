@@ -107,6 +107,25 @@ describe('LoadingOverlay', () => {
       expect(retryButton).toBeInTheDocument();
     });
 
+    it('renders retry button for timed_out phase even without explicit error message', () => {
+      render(
+        <LoadingOverlay
+          loadingState={{
+            isLoading: false,
+            loadingStatus: 'Timed out',
+            errorMessage: null,
+            startTime: null,
+            progress: 100,
+            phase: 'timed_out',
+          }}
+          onRetry={mockOnRetry}
+        />
+      );
+
+      const retryButton = screen.getByRole('button', { name: /retry/i });
+      expect(retryButton).toBeInTheDocument();
+    });
+
     it('does not render spinner when there is an error', () => {
       const { container } = render(
         <LoadingOverlay

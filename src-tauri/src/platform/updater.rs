@@ -71,6 +71,41 @@ struct PendingUpdate {
 
 static PENDING_UPDATE: Lazy<Mutex<Option<PendingUpdate>>> = Lazy::new(|| Mutex::new(None));
 
+fn normalize_updater_error(raw: &str, phase: &'static str) -> String {
+    let lower = raw.to_lowercase();
+
+    if lower.contains("signature") {
+        return "Signature verification failed. Please download the release manually from GitHub Releases.".to_string();
+    }
+
+    if lower.contains("target")
+        || lower.contains("platform")
+        || lower.contains("arch")
+        || lower.contains("os")
+    {
+        return "No update package is available for this platform yet.".to_string();
+    }
+
+    if lower.contains("endpoint")
+        || lower.contains("pubkey")
+        || lower.contains("manifest")
+        || lower.contains("latest.json")
+    {
+        return "Update service is not configured for this build. Open GitHub Releases to install manually.".to_string();
+    }
+
+    if lower.contains("timeout")
+        || lower.contains("dns")
+        || lower.contains("connection")
+        || lower.contains("network")
+        || lower.contains("request")
+    {
+        return format!("Unable to {} updates right now. Please try again later.", phase);
+    }
+
+    format!("Update {} failed: {}", phase, raw)
+}
+
 fn extract_update_info(update: &Update) -> UpdateInfo {
     UpdateInfo {
         version: update.version.clone(),
@@ -87,7 +122,7 @@ pub async fn check_for_update<R: Runtime>(app: AppHandle<R>) -> Result<UpdateSta
             log::info!("Updater: application exiting for update installation...");
         })
         .build()
-        .map_err(|e| UpdaterError::CheckFailed(e.to_string()))?;
+        .map_err(|e| UpdaterError::CheckFailed(normalize_updater_error(&e.to_string(), "check")))?;
 
     match updater.check().await {
         Ok(Some(update)) => {
@@ -98,7 +133,7 @@ pub async fn check_for_update<R: Runtime>(app: AppHandle<R>) -> Result<UpdateSta
             Ok(UpdateStatus::Available(info))
         }
         Ok(None) => Ok(UpdateStatus::NotAvailable),
-        Err(e) => Err(UpdaterError::CheckFailed(e.to_string())),
+        Err(e) => Err(UpdaterError::CheckFailed(normalize_updater_error(&e.to_string(), "check"))),
     }
 }
 
@@ -124,7 +159,7 @@ pub async fn download_update<R: Runtime>(_app: AppHandle<R>, window: tauri::Wind
             let _ = window_clone.emit("update-progress", UpdateStatus::Downloading(progress));
         },
         || log::info!("Download finished"),
-    ).await.map_err(|e| UpdaterError::DownloadFailed(e.to_string()))?;
+    ).await.map_err(|e| UpdaterError::DownloadFailed(normalize_updater_error(&e.to_string(), "download")))?;
 
     if let Ok(mut pending) = PENDING_UPDATE.lock() {
         *pending = Some(PendingUpdate { update, bytes: Some(bytes) });
@@ -144,7 +179,7 @@ pub async fn install_update<R: Runtime>(app: AppHandle<R>) -> Result<(), Updater
     ))?;
 
     pending_data.update.install(bytes)
-        .map_err(|e| UpdaterError::InstallFailed(e.to_string()))?;
+        .map_err(|e| UpdaterError::InstallFailed(normalize_updater_error(&e.to_string(), "install")))?;
 
     log::info!("Install completed, restarting...");
     app.restart();
@@ -171,7 +206,7 @@ pub async fn download_and_install_update<R: Runtime>(app: AppHandle<R>, window: 
             let _ = window_clone.emit("update-progress", UpdateStatus::Downloading(progress));
         },
         || log::info!("Download finished, installing..."),
-    ).await.map_err(|e| UpdaterError::InstallFailed(e.to_string()))?;
+    ).await.map_err(|e| UpdaterError::InstallFailed(normalize_updater_error(&e.to_string(), "install")))?;
 
     app.restart();
 }
@@ -195,4 +230,27 @@ pub fn has_pending_update() -> bool {
 fn format_datetime(dt: OffsetDateTime) -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         dt.year(), dt.month() as u8, dt.day(), dt.hour(), dt.minute(), dt.second())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_updater_error;
+
+    #[test]
+    fn classifies_missing_configuration_errors() {
+        let error = normalize_updater_error("failed to build updater: missing endpoints", "check");
+        assert!(error.contains("not configured"));
+    }
+
+    #[test]
+    fn classifies_signature_failures_as_security_errors() {
+        let error = normalize_updater_error("signature verification failed", "install");
+        assert!(error.contains("Signature verification failed"));
+    }
+
+    #[test]
+    fn classifies_missing_platform_payloads() {
+        let error = normalize_updater_error("target not found in manifest", "check");
+        assert!(error.contains("platform"));
+    }
 }

@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 import packageJson from './package.json';
 
+process.env.BROWSERSLIST_IGNORE_OLD_DATA ??= 'true';
+process.env.BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA ??= 'true';
+
 const isProd = process.env.NODE_ENV === "production";
 
 const internalHost = process.env.TAURI_DEV_HOST || "localhost";

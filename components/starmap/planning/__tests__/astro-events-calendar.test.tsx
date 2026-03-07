@@ -137,6 +137,17 @@ jest.mock('@/components/ui/label', () => ({
 jest.mock('@/components/ui/collapsible', () => ({
   Collapsible: ({ children }: { children: React.ReactNode }) => <div data-testid="collapsible">{children}</div>,
   CollapsibleContent: ({ children }: { children: React.ReactNode }) => <div data-testid="collapsible-content">{children}</div>,
+  CollapsibleTrigger: ({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) => (
+    asChild ? <>{children}</> : <div data-testid="collapsible-trigger">{children}</div>
+  ),
+}));
+
+jest.mock('@/components/ui/skeleton', () => ({
+  Skeleton: () => <div data-testid="skeleton" />,
+}));
+
+jest.mock('@/components/ui/empty-state', () => ({
+  EmptyState: ({ message }: { message?: string }) => <div data-testid="empty-state">{message}</div>,
 }));
 
 import { AstroEventsCalendar } from '../astro-events-calendar';

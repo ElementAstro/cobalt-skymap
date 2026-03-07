@@ -19,6 +19,25 @@ export type StellariumCanvasProps = SkyMapCanvasProps;
 // Re-export from canonical location to avoid duplicate interface definitions
 export type { EngineStatus } from '@/lib/core/types/sky-engine';
 
+export type LoadingPhase =
+  | 'idle'
+  | 'preparing'
+  | 'loading_script'
+  | 'initializing_engine'
+  | 'ready'
+  | 'retrying'
+  | 'failed'
+  | 'timed_out';
+
+export type LoadingErrorCode =
+  | 'container_not_ready'
+  | 'script_timeout'
+  | 'script_failed'
+  | 'engine_timeout'
+  | 'engine_init_failed'
+  | 'overall_timeout'
+  | 'unknown';
+
 export interface LoadingState {
   isLoading: boolean;
   loadingStatus: string;
@@ -26,6 +45,9 @@ export interface LoadingState {
   startTime: number | null;
   /** 0-100 progress percentage for the loading bar */
   progress: number;
+  phase?: LoadingPhase;
+  errorCode?: LoadingErrorCode | null;
+  retryCount?: number;
 }
 
 export interface ViewDirection {

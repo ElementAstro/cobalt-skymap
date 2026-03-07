@@ -131,6 +131,8 @@ jest.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuCheckboxItem: ({ children, onCheckedChange }: { children: React.ReactNode; onCheckedChange?: () => void }) => (<div data-testid="dropdown-checkbox" onClick={() => onCheckedChange?.()}>{children}</div>),
+  DropdownMenuRadioGroup: ({ children }: { children: React.ReactNode }) => <div data-testid="dropdown-radio-group">{children}</div>,
+  DropdownMenuRadioItem: ({ children }: { children: React.ReactNode }) => <div data-testid="dropdown-radio-item">{children}</div>,
   DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuSeparator: () => <hr />,
   DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -140,6 +142,14 @@ jest.mock('@/components/ui/checkbox', () => ({
   Checkbox: ({ checked, onCheckedChange }: { checked?: boolean; onCheckedChange?: (c: boolean) => void }) => (
     <input type="checkbox" data-testid="checkbox" checked={checked} onChange={(e) => onCheckedChange?.(e.target.checked)} />
   ),
+}));
+
+jest.mock('@/components/ui/kbd', () => ({
+  Kbd: ({ children }: { children: React.ReactNode }) => <kbd>{children}</kbd>,
+}));
+
+jest.mock('@/components/ui/empty-state', () => ({
+  EmptyState: ({ message }: { message?: string }) => <div data-testid="empty-state">{message}</div>,
 }));
 
 // Mock child components to simplify tests

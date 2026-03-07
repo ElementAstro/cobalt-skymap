@@ -139,6 +139,77 @@ export interface Observation {
   notes?: string;
   sketch_path?: string;
   image_paths: string[];
+  execution_target_id?: string;
+}
+
+export type ObservationExecutionStatus =
+  | 'draft'
+  | 'ready'
+  | 'active'
+  | 'completed'
+  | 'archived'
+  | 'cancelled';
+
+export type ObservationExecutionTargetStatus =
+  | 'planned'
+  | 'in_progress'
+  | 'completed'
+  | 'skipped'
+  | 'failed';
+
+export interface ObservationExecutionTarget {
+  id: string;
+  target_id: string;
+  target_name: string;
+  scheduled_start: string;
+  scheduled_end: string;
+  scheduled_duration_minutes: number;
+  order: number;
+  status: ObservationExecutionTargetStatus;
+  observation_ids: string[];
+  actual_start?: string;
+  actual_end?: string;
+  result_notes?: string;
+  skip_reason?: string;
+  completion_summary?: string;
+  unplanned?: boolean;
+}
+
+export interface ObservationExecutionSummary {
+  completed_targets: number;
+  skipped_targets: number;
+  failed_targets: number;
+  total_targets: number;
+  total_observations: number;
+}
+
+export interface CreatePlannedSessionTarget {
+  id: string;
+  targetId: string;
+  targetName: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  scheduledDurationMinutes: number;
+  order: number;
+  status: ObservationExecutionTargetStatus;
+  observationIds: string[];
+  actualStart?: string;
+  actualEnd?: string;
+  resultNotes?: string;
+  skipReason?: string;
+  completionSummary?: string;
+  unplanned?: boolean;
+}
+
+export interface CreatePlannedSessionPayload {
+  planDate: string;
+  locationId?: string;
+  locationName?: string;
+  sourcePlanId: string;
+  sourcePlanName: string;
+  notes?: string;
+  weatherSnapshot?: unknown;
+  executionTargets: CreatePlannedSessionTarget[];
 }
 
 export interface ObservationSession {
@@ -155,6 +226,12 @@ export interface ObservationSession {
   bortle_class?: number;   // 1-9
   notes?: string;
   observations: Observation[];
+  source_plan_id?: string;
+  source_plan_name?: string;
+  execution_status?: ObservationExecutionStatus;
+  execution_targets?: ObservationExecutionTarget[];
+  weather_snapshot?: unknown;
+  execution_summary?: ObservationExecutionSummary;
   created_at: string;
   updated_at: string;
 }

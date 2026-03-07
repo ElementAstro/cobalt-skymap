@@ -8,6 +8,8 @@ import type {
   FeedbackSubmissionPayload,
   FeedbackType,
   FeedbackUrlBuildResult,
+  FeedbackSeverity,
+  FeedbackPriority,
 } from '@/types/feedback';
 
 const APP_NAME = 'SkyMap';
@@ -53,8 +55,15 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength).trimEnd()}\n...[truncated]`;
 }
 
-function defaultLabels(type: FeedbackType): string[] {
-  return type === 'bug' ? ['bug'] : ['enhancement'];
+function defaultLabels(type: FeedbackType, severity?: FeedbackSeverity, priority?: FeedbackPriority): string[] {
+  const labels = type === 'bug' ? ['bug'] : ['enhancement'];
+  if (type === 'bug' && severity) {
+    labels.push(`severity:${severity}`);
+  }
+  if (type === 'feature' && priority) {
+    labels.push(`priority:${priority}`);
+  }
+  return labels;
 }
 
 function defaultTemplate(type: FeedbackType): string {
@@ -189,6 +198,13 @@ export function buildIssueBodyMarkdown(payload: FeedbackSubmissionPayload): stri
   sections.push(`## ${draft.type === 'bug' ? 'Summary' : 'Feature Summary'}`);
   sections.push(description || '_No description provided._');
 
+  if (draft.type === 'bug' && draft.severity) {
+    sections.push(`**Severity:** ${draft.severity}`);
+  }
+  if (draft.type === 'feature' && draft.priority) {
+    sections.push(`**Priority:** ${draft.priority}`);
+  }
+
   if (draft.type === 'bug') {
     sections.push('## Steps To Reproduce');
     sections.push(steps || '_Not provided._');
@@ -234,7 +250,9 @@ export function buildGitHubIssueUrl(
   payload: FeedbackSubmissionPayload,
   threshold: number = URL_LENGTH_THRESHOLD
 ): FeedbackUrlBuildResult {
-  const labels = payload.labels?.length ? payload.labels : defaultLabels(payload.draft.type);
+  const labels = payload.labels?.length
+    ? payload.labels
+    : defaultLabels(payload.draft.type, payload.draft.severity, payload.draft.priority);
   const markdownBody = buildIssueBodyMarkdown(payload);
   const url = EXTERNAL_LINKS.newIssueUrl({
     template: defaultTemplate(payload.draft.type),

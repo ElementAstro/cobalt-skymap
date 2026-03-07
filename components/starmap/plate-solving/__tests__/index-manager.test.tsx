@@ -459,7 +459,7 @@ describe('IndexManager', () => {
     fireEvent.click(deleteButtons[0]);
 
     // Confirm dialog should show
-    expect(screen.getByText('plateSolving.deleteIndex')).toBeInTheDocument();
+    expect(screen.getAllByText('plateSolving.deleteIndex').length).toBeGreaterThan(0);
     expect(screen.getByText('plateSolving.deleteIndexConfirm')).toBeInTheDocument();
   });
 

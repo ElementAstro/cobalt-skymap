@@ -3,7 +3,7 @@
  * FOV conversion and timeout utilities
  */
 
-import { withTimeout, fovToRad, fovToDeg, getMaxDprForQuality, getEffectiveDpr } from '../stellarium-canvas-utils';
+import { withTimeout, fovToRad, fovToDeg, getMaxDprForQuality, getEffectiveDpr, prefetchWasm } from '../stellarium-canvas-utils';
 
 describe('getMaxDprForQuality', () => {
   it('should return 1 for low quality', () => {
@@ -117,39 +117,50 @@ describe('withTimeout', () => {
   });
 });
 
-jest.mock('@/lib/offline', () => ({
-  unifiedCache: {
-    fetch: jest.fn(),
-  },
-}));
-
 describe('prefetchWasm', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { unifiedCache } = require('@/lib/offline');
+  const originalFetch = global.fetch;
+  const originalWindowFetch = (window as Window & { __originalFetch?: typeof fetch }).__originalFetch;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    delete (window as Window & { __originalFetch?: typeof fetch }).__originalFetch;
+  });
+
+  afterAll(() => {
+    global.fetch = originalFetch;
+    if (originalWindowFetch) {
+      (window as Window & { __originalFetch?: typeof fetch }).__originalFetch = originalWindowFetch;
+    } else {
+      delete (window as Window & { __originalFetch?: typeof fetch }).__originalFetch;
+    }
   });
 
   it('should return true when fetch succeeds', async () => {
-    (unifiedCache.fetch as jest.Mock).mockResolvedValue({ ok: true });
-    const { prefetchWasm } = await import('../stellarium-canvas-utils');
+    const fallbackFetch = jest.fn().mockResolvedValue({ ok: false });
+    const originalFetchMock = jest.fn().mockResolvedValue({ ok: true });
+    global.fetch = fallbackFetch as unknown as typeof fetch;
+    (window as Window & { __originalFetch?: typeof fetch }).__originalFetch = originalFetchMock as unknown as typeof fetch;
+
     const result = await prefetchWasm();
+
     expect(result).toBe(true);
-    expect(unifiedCache.fetch).toHaveBeenCalled();
+    expect(originalFetchMock).toHaveBeenCalled();
+    expect(fallbackFetch).not.toHaveBeenCalled();
   });
 
   it('should return false when fetch fails', async () => {
-    (unifiedCache.fetch as jest.Mock).mockRejectedValue(new Error('network error'));
-    const { prefetchWasm } = await import('../stellarium-canvas-utils');
+    global.fetch = jest.fn().mockRejectedValue(new Error('network error')) as unknown as typeof fetch;
+
     const result = await prefetchWasm();
+
     expect(result).toBe(false);
   });
 
   it('should return false when response is not ok', async () => {
-    (unifiedCache.fetch as jest.Mock).mockResolvedValue({ ok: false });
-    const { prefetchWasm } = await import('../stellarium-canvas-utils');
+    global.fetch = jest.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
+
     const result = await prefetchWasm();
+
     expect(result).toBe(false);
   });
 });

@@ -82,3 +82,40 @@
 - TS 与 Rust 使用同一银河坐标矩阵（J2000）实现互转
 - M31 参考样例维持 1 arcsec 阈值一致性
 - 关键坐标转换覆盖单测与 E2E 断言（可见性 + 可操作性 + 数值阈值）
+
+## 5. 计划执行契约
+
+### 执行阶段真源
+
+- 规划阶段真源仍为 `SavedSessionPlan`
+- 执行阶段真源统一为 `ObservationSession`
+- `ObservationSession` 缺少执行字段时，视为“手工观测会话”，必须继续可读
+
+### 执行状态枚举
+
+- 会话状态：
+  - `draft`
+  - `ready`
+  - `active`
+  - `completed`
+  - `archived`
+  - `cancelled`
+- 目标状态：
+  - `planned`
+  - `in_progress`
+  - `completed`
+  - `skipped`
+  - `failed`
+
+### 字段关联规则
+
+- `ObservationSession.source_plan_id`：关联来源计划
+- `ObservationSession.execution_targets`：执行期目标列表
+- `Observation.execution_target_id`：关联到具体执行目标
+- 当 observation 带有 `execution_target_id` 时，前后端都必须把它视作“计划目标的执行记录”
+
+### 兼容性要求
+
+- Rust 新增执行字段全部为可选
+- 前端 store 持久化新增字段必须通过版本迁移初始化默认值
+- 历史 `ObservationSession` JSON 未包含执行字段时，反序列化不得失败

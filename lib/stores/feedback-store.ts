@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getZustandStorage } from '@/lib/storage';
-import type { FeedbackDraft, FeedbackType } from '@/types/feedback';
+import type { FeedbackDraft, FeedbackType, FeedbackSeverity, FeedbackPriority } from '@/types/feedback';
 
 interface FeedbackPreferences {
   includeSystemInfo: boolean;
@@ -17,6 +17,9 @@ interface FeedbackStoreState {
   updateDraft: (patch: Partial<FeedbackDraft>) => void;
   setIncludeSystemInfo: (enabled: boolean) => void;
   setIncludeLogs: (enabled: boolean) => void;
+  setSeverity: (severity: FeedbackSeverity | undefined) => void;
+  setPriority: (priority: FeedbackPriority | undefined) => void;
+  setScreenshot: (screenshot: string | null) => void;
   resetDraft: (type?: FeedbackType) => void;
   clearDraftContent: () => void;
 }
@@ -68,6 +71,18 @@ export const useFeedbackStore = create<FeedbackStoreState>()(
         }));
       },
 
+      setSeverity: (severity) => {
+        set((state) => ({ draft: { ...state.draft, severity } }));
+      },
+
+      setPriority: (priority) => {
+        set((state) => ({ draft: { ...state.draft, priority } }));
+      },
+
+      setScreenshot: (screenshot) => {
+        set((state) => ({ draft: { ...state.draft, screenshot } }));
+      },
+
       resetDraft: (type) => {
         const { preferences, draft } = get();
         set({
@@ -84,6 +99,9 @@ export const useFeedbackStore = create<FeedbackStoreState>()(
             reproductionSteps: '',
             expectedBehavior: '',
             additionalContext: '',
+            severity: undefined,
+            priority: undefined,
+            screenshot: null,
           },
         }));
       },
@@ -91,7 +109,7 @@ export const useFeedbackStore = create<FeedbackStoreState>()(
     {
       name: 'starmap-feedback',
       storage: getZustandStorage(),
-      version: 1,
+      version: 2,
       migrate: (persistedState) => {
         const state = persistedState as Partial<FeedbackStoreState> | undefined;
         const preferences = {

@@ -3,6 +3,9 @@
  * https://jestjs.io/docs/configuration
  */
 
+process.env.BROWSERSLIST_IGNORE_OLD_DATA ??= 'true';
+process.env.BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA ??= 'true';
+
 import type { Config } from "jest";
 import nextJest from "next/jest.js";
 
@@ -136,6 +139,7 @@ const config: Config = {
   modulePathIgnorePatterns: [
     "<rootDir>/out/",
     "<rootDir>/.next/",
+    "<rootDir>/.worktrees/",
   ],
 
   // Activates notifications for test results
@@ -214,6 +218,7 @@ const config: Config = {
   testPathIgnorePatterns: [
     "/node_modules/",
     "/.next/",
+    "/.worktrees/",
     "/out/",
     "/src-tauri/",
     "/tests/e2e/",

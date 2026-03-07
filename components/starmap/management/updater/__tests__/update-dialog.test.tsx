@@ -4,11 +4,17 @@
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { EXTERNAL_LINKS } from '@/lib/constants/external-links';
 
 const mockUseUpdater = jest.fn();
+const mockOpenExternalUrl = jest.fn();
 
 jest.mock('@/lib/tauri/updater-hooks', () => ({
   useUpdater: () => mockUseUpdater(),
+}));
+
+jest.mock('@/lib/tauri/app-control-api', () => ({
+  openExternalUrl: (url: string) => mockOpenExternalUrl(url),
 }));
 
 jest.mock('@/lib/tauri/updater-api', () => ({
@@ -47,6 +53,7 @@ jest.mock('next-intl', () => ({
       checkAgain: 'Check Again',
       restartNow: 'Restart Now',
       skipVersion: 'Skip This Version',
+      openReleases: 'Open Releases',
       downloadSpeed: params?.speed ? `${params.speed}/s` : '',
       timeRemaining: params?.time ? `${params.time} remaining` : '',
     };
@@ -191,6 +198,30 @@ describe('UpdateDialog', () => {
     if (retryButton) fireEvent.click(retryButton);
 
     expect(checkForUpdate).toHaveBeenCalled();
+  });
+
+  it('should show an open releases action for updater configuration errors', () => {
+    mockUseUpdater.mockReturnValue({
+      ...defaultMockReturn,
+      error: 'Update service is not configured for this build.',
+    });
+
+    renderComponent(true);
+
+    expect(screen.getByRole('button', { name: 'Open Releases' })).toBeInTheDocument();
+  });
+
+  it('should open GitHub releases when the fallback action is clicked', () => {
+    mockUseUpdater.mockReturnValue({
+      ...defaultMockReturn,
+      error: 'Signature verification failed. Please download the release manually from GitHub Releases.',
+    });
+
+    renderComponent(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Releases' }));
+
+    expect(mockOpenExternalUrl).toHaveBeenCalledWith(EXTERNAL_LINKS.releases);
   });
 
   it('should call downloadAndInstall when update now button is clicked', async () => {

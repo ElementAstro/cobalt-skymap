@@ -244,6 +244,60 @@ describe('updater-hooks', () => {
       expect(mockDownloadAndInstallUpdate).toHaveBeenCalled();
     });
 
+    it('should store error state when downloadAndInstall returns an error status', async () => {
+      mockCheckForUpdate.mockResolvedValue({
+        status: 'available',
+        data: { version: '1.0.1', current_version: '1.0.0', date: null, body: null },
+      });
+      mockDownloadAndInstallUpdate.mockResolvedValue({
+        status: 'error',
+        data: 'Signature verification failed.',
+      });
+
+      const { result } = renderHook(() => useUpdater());
+
+      await act(async () => {
+        await result.current.checkForUpdate();
+      });
+
+      await act(async () => {
+        await result.current.downloadAndInstall();
+      });
+
+      expect(result.current.error).toBe('Signature verification failed.');
+    });
+
+    it('should store error state when installUpdate returns an error status', async () => {
+      mockCheckForUpdate.mockResolvedValue({
+        status: 'available',
+        data: { version: '1.0.1', current_version: '1.0.0', date: null, body: null },
+      });
+      mockDownloadUpdate.mockResolvedValue({
+        status: 'ready',
+        data: { version: '1.0.1', current_version: '1.0.0', date: null, body: null },
+      });
+      mockInstallUpdate.mockResolvedValue({
+        status: 'error',
+        data: 'Update service is not configured for this build.',
+      });
+
+      const { result } = renderHook(() => useUpdater());
+
+      await act(async () => {
+        await result.current.checkForUpdate();
+      });
+
+      await act(async () => {
+        await result.current.downloadUpdate();
+      });
+
+      await act(async () => {
+        await result.current.installUpdate();
+      });
+
+      expect(result.current.error).toBe('Update service is not configured for this build.');
+    });
+
     it('should dismiss update when dismissUpdate is called', async () => {
       mockCheckForUpdate.mockResolvedValue({
         status: 'available',

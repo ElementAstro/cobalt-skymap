@@ -11,6 +11,7 @@ jest.mock('@/components/ui/dialog', () => ({
   DialogContent: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   DialogHeader: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   DialogTitle: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DialogDescription: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   DialogFooter: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }));
 jest.mock('@/components/ui/button', () => ({ Button: ({ children, onClick, ...props }: React.PropsWithChildren<{ onClick?: () => void }>) => <button onClick={onClick} {...props}>{children}</button> }));

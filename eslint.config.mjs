@@ -11,6 +11,8 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "coverage/**",
+    ".worktrees/**",
     "next-env.d.ts",
     // Stellarium Web Engine (third-party)
     "public/stellarium-js/**",
@@ -36,6 +38,12 @@ const eslintConfig = defineConfig([
     files: ["components/common/log-viewer.tsx"],
     rules: {
       "react-hooks/incompatible-library": "off",
+    },
+  },
+  {
+    files: ["scripts/**/*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
 ]);

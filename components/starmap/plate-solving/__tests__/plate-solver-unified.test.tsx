@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PlateSolverUnified } from '../plate-solver-unified';
 import { usePlateSolverStore } from '@/lib/stores/plate-solver-store';
 
@@ -212,7 +212,14 @@ jest.mock('@/lib/tauri/plate-solver-api', () => ({
 }));
 
 // Capture the onImageCapture callback so tests can trigger solves
-let capturedOnImageCapture: ((file: File, metadata?: unknown) => void) | null = null;
+let capturedOnImageCapture: ((file: File, metadata?: unknown) => void | Promise<void>) | null = null;
+
+async function triggerImageCapture(file: File, metadata?: unknown) {
+  expect(capturedOnImageCapture).not.toBeNull();
+  await act(async () => {
+    await capturedOnImageCapture!(file, metadata);
+  });
+}
 
 jest.mock('../image-capture', () => ({
   ImageCapture: ({ onImageCapture, trigger }: { onImageCapture: (file: File, metadata?: unknown) => void; trigger?: React.ReactNode }) => {
@@ -346,6 +353,8 @@ describe('PlateSolverUnified', () => {
       isAnalysingImage: false,
       onlineSolveProgress: null,
       solveHistory: [],
+      detectSolvers: jest.fn().mockResolvedValue(undefined),
+      loadConfig: jest.fn().mockResolvedValue(undefined),
     });
     mockIsTauri.mockReturnValue(true);
     capturedOnImageCapture = null;
@@ -873,7 +882,7 @@ describe('PlateSolverUnified', () => {
 
       // Trigger local solve
       const file = new File(['test'], 'test.fits', { type: 'application/fits' });
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(mockSolveImageLocal).toHaveBeenCalled();
@@ -897,7 +906,7 @@ describe('PlateSolverUnified', () => {
       });
 
       const file = new File(['test'], 'test.fits');
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(screen.getByTestId('solve-result')).toBeInTheDocument();
@@ -923,7 +932,7 @@ describe('PlateSolverUnified', () => {
       });
 
       const file = new File(['test'], 'test.fits');
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(screen.getByTestId('solve-result')).toBeInTheDocument();
@@ -988,7 +997,7 @@ describe('PlateSolverUnified', () => {
       });
 
       const file = new File(['test'], 'star.jpg');
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(screen.getByTestId('solve-result')).toBeInTheDocument();
@@ -1020,7 +1029,7 @@ describe('PlateSolverUnified', () => {
       });
 
       const file = new File(['test'], 'star.jpg');
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(screen.getByTestId('solve-result')).toBeInTheDocument();
@@ -1065,7 +1074,7 @@ describe('PlateSolverUnified', () => {
       });
 
       const file = new File(['test'], 'star.jpg', { type: 'image/jpeg' });
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(mockSolve).toHaveBeenCalled();
@@ -1095,7 +1104,7 @@ describe('PlateSolverUnified', () => {
       });
 
       const file = new File(['test'], 'star.jpg');
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(screen.getByTestId('solve-result')).toBeInTheDocument();
@@ -1131,7 +1140,7 @@ describe('PlateSolverUnified', () => {
       });
 
       const file = new File(['test'], 'test.fits');
-      await capturedOnImageCapture!(file);
+      await triggerImageCapture(file);
 
       await waitFor(() => {
         expect(screen.getByTestId('goto-btn')).toBeInTheDocument();
@@ -1163,7 +1172,10 @@ describe('PlateSolverUnified', () => {
 
       const file = new File(['test'], 'test.fits');
       // Don't await - it will hang
-      const solvePromise = capturedOnImageCapture!(file);
+      let solvePromise!: Promise<void>;
+      await act(async () => {
+        solvePromise = Promise.resolve(capturedOnImageCapture!(file));
+      });
 
       // Wait a tick for solving state to update
       await waitFor(() => {
@@ -1174,8 +1186,10 @@ describe('PlateSolverUnified', () => {
       });
 
       // Resolve the promise to avoid hanging
-      rejectSolve!(new Error('cancelled'));
-      await solvePromise;
+      await act(async () => {
+        rejectSolve!(new Error('cancelled'));
+        await solvePromise;
+      });
 
       await waitFor(() => {
         expect(screen.getByTestId('solve-result')).toBeInTheDocument();
@@ -1217,7 +1231,7 @@ describe('PlateSolverUnified', () => {
           },
         },
       };
-      await capturedOnImageCapture!(file, metadata);
+      await triggerImageCapture(file, metadata);
 
       await waitFor(() => {
         // The ra_hint and dec_hint should be passed from WCS

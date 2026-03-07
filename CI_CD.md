@@ -129,6 +129,12 @@ Builds cross-platform desktop applications for:
 - **Windows** (x64): MSI and NSIS installers
 - **macOS** (x64 and ARM64): DMG and .app bundles
 
+For tagged releases, the workflow also generates Tauri updater artifacts:
+
+- platform-specific updater archives (`.zip` on Windows, `.tar.gz` on macOS/Linux)
+- matching `.sig` signature files
+- `latest.json` built from downloaded artifacts and `CHANGELOG.md`
+
 **Platform-Specific Requirements:**
 
 #### Linux (Ubuntu)
@@ -227,9 +233,31 @@ The release will be created as a **draft** with:
 
 - Auto-generated release notes
 - All platform-specific installers attached
+- All updater archives and `.sig` files attached
+- `latest.json` attached for the in-app updater
 - Changelog based on commits since last tag
 
 **Review and publish the draft release manually** after verifying the artifacts.
+
+Desktop clients only detect **published** releases. Draft releases are not consumed by the updater.
+
+### Auto Update Secrets
+
+Tagged releases require these GitHub repository secrets:
+
+- `TAURI_UPDATER_PUBLIC_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+### Release Checklist
+
+Before pushing a version tag:
+
+1. Add the target version section to `CHANGELOG.md`
+2. Keep `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` aligned
+3. Push a semantic version tag such as `v0.2.0`
+4. Verify the generated draft release contains installers, updater archives, `.sig` files, and `latest.json`
+5. Publish the draft release manually when verification is complete
 
 ## Caching Strategy
 

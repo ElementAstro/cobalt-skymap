@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CacheLayersTab } from '../cache-layers-tab';
 
 jest.mock('next-intl', () => ({
@@ -124,10 +124,12 @@ describe('CacheLayersTab', () => {
   });
 
   // 批量下载已选 layers
-  it('calls downloadSelectedLayers when download clicked', () => {
+  it('calls downloadSelectedLayers when download clicked', async () => {
     render(<CacheLayersTab onStorageChanged={onStorageChanged} />);
     fireEvent.click(screen.getByText('Star catalog'));
-    fireEvent.click(screen.getByText('common.download'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('common.download'));
+    });
     expect(mockDownloadSelectedLayers).toHaveBeenCalledWith(['layer1']);
   });
 

@@ -29,21 +29,21 @@
 
 #### Windows
 
-1. 访问 [Releases 页面](https://github.com/yourusername/skymap-test/releases)
+1. 访问 [Releases 页面](https://github.com/AstroAir/skymap-test/releases)
 2. 下载 `.msi` 安装程序
 3. 双击运行安装程序
 4. 按照安装向导完成安装
 
 #### macOS
 
-1. 访问 [Releases 页面](https://github.com/yourusername/skymap-test/releases)
+1. 访问 [Releases 页面](https://github.com/AstroAir/skymap-test/releases)
 2. 下载 `.dmg` 文件
 3. 打开 DMG 文件
 4. 将 SkyMap Test 拖拽到 Applications 文件夹
 
 #### Linux
 
-1. 访问 [Releases 页面](https://github.com/yourusername/skymap-test/releases)
+1. 访问 [Releases 页面](https://github.com/AstroAir/skymap-test/releases)
 2. 下载 `.AppImage` 文件
 3. 添加执行权限：
 
@@ -60,6 +60,15 @@ chmod +x SkyMapTest-*.AppImage
 ### 方式二：从源代码构建
 
 如果您想从源代码构建，请参考[构建指南](../deployment/desktop/building.md)。
+
+## 自动更新
+
+桌面版本支持从 GitHub Releases 检测正式发布的更新。
+
+- 可在设置中手动点击“检查更新”
+- 开启“自动更新”后，应用启动时会自动检查
+- 只有已经 publish 的 release 会被检测到，draft release 不会推送给客户端
+- 如果自动更新不可用，应用会提供打开 GitHub Releases 页面手动下载
 
 ## 初次运行
 
