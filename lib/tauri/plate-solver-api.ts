@@ -161,6 +161,7 @@ export interface ImageAnalysisResult {
 export interface OnlineSolveConfig {
   api_key: string;
   image_path: string;
+  operation_id?: string;
   base_url?: string;
   ra_hint?: number;
   dec_hint?: number;
@@ -225,10 +226,24 @@ export interface OnlineSolveProgress {
   message: string;
   sub_id: number | null;
   job_id: number | null;
+  operation_id: string | null;
 }
+
+export type OnlineSolveErrorCode =
+  | 'missing_api_key'
+  | 'offline'
+  | 'auth_failed'
+  | 'upload_failed'
+  | 'timeout'
+  | 'network'
+  | 'service_failed'
+  | 'cancelled'
+  | 'invalid_image'
+  | 'unknown';
 
 export interface OnlineSolveResult {
   success: boolean;
+  operation_id: string | null;
   ra: number | null;
   dec: number | null;
   orientation: number | null;
@@ -242,6 +257,7 @@ export interface OnlineSolveResult {
   job_id: number | null;
   wcs: OnlineWcsResult | null;
   solve_time_ms: number;
+  error_code: OnlineSolveErrorCode | null;
   error_message: string | null;
 }
 
@@ -455,6 +471,14 @@ export async function solveOnline(
   return invoke<OnlineSolveResult>('solve_online', { config });
 }
 
+/**
+ * Cancel an active online solve operation.
+ * Returns true when a running solve was found and cancellation was signaled.
+ */
+export async function cancelOnlineSolve(operationId?: string): Promise<boolean> {
+  return invoke<boolean>('cancel_online_solve', { operationId: operationId ?? null });
+}
+
 // ============================================================================
 // Legacy Plate Solver API (backward compatibility)
 // ============================================================================
@@ -641,6 +665,7 @@ export const plateSolverApi = {
   extractStars,
   // Online Solving API
   solveOnline,
+  cancelOnlineSolve,
   // Legacy API
   plateSolve,
   getSolverIndexes,

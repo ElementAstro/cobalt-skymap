@@ -118,6 +118,8 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
   const [torchOn, setTorchOn] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
+  const shouldResumeOnVisibleRef = useRef(false);
+  const lastStartOverridesRef = useRef<Partial<UseCameraOptions>>({});
 
   const isSupported =
     typeof navigator !== 'undefined' &&
@@ -144,8 +146,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
     }
   }, [isSupported]);
 
-  // Stop the current stream
-  const stop = useCallback(() => {
+  const clearStream = useCallback((preserveResume = false) => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -154,7 +155,15 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
     setTorchOn(false);
     setZoomLevel(1);
     setCapabilities({});
+    if (!preserveResume) {
+      shouldResumeOnVisibleRef.current = false;
+    }
   }, []);
+
+  // Stop the current stream
+  const stop = useCallback(() => {
+    clearStream(false);
+  }, [clearStream]);
 
   // Read capabilities from the active video track
   // Note: zoom/torch are Chrome/Android extensions not in standard TS types
@@ -201,7 +210,8 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
       setErrorType(null);
 
       // Stop existing stream
-      stop();
+      clearStream(true);
+      lastStartOverridesRef.current = overrides;
 
       const mode = overrides.facingMode ?? facingMode;
       const res = overrides.resolution ?? initialResolution;
@@ -220,6 +230,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
         streamRef.current = mediaStream;
         setStream(mediaStream);
         setFacingModeState(mode);
+        shouldResumeOnVisibleRef.current = true;
 
         readCapabilities(mediaStream);
 
@@ -229,11 +240,12 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
         const classified = classifyError(err);
         setError(classified.message);
         setErrorType(classified.type);
+        shouldResumeOnVisibleRef.current = false;
       } finally {
         setIsLoading(false);
       }
     },
-    [isSupported, facingMode, initialResolution, stop, readCapabilities, enumerateDevicesAction],
+    [isSupported, facingMode, initialResolution, clearStream, readCapabilities, enumerateDevicesAction],
   );
 
   // Switch between front and back cameras
@@ -342,15 +354,35 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
     }
   }, [capabilities.torch, torchOn]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (streamRef.current) {
+          clearStream(true);
+        }
+        return;
+      }
+
+      if (!shouldResumeOnVisibleRef.current || streamRef.current || isLoading) {
+        return;
+      }
+      void start(lastStartOverridesRef.current);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [clearStream, isLoading, start]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
+      clearStream(false);
     };
-  }, []);
+  }, [clearStream]);
 
   return {
     stream,

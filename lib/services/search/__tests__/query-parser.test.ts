@@ -1,6 +1,12 @@
 import { parseSearchQuery } from '../query-parser';
 
 describe('parseSearchQuery', () => {
+  it('parses plain text as name intent', () => {
+    const parsed = parseSearchQuery('Andromeda Galaxy');
+    expect(parsed.intent).toBe('name');
+    expect(parsed.normalized).toBe('Andromeda Galaxy');
+  });
+
   it('parses catalog command prefixes', () => {
     expect(parseSearchQuery('m:31')).toMatchObject({
       intent: 'catalog',
@@ -11,6 +17,11 @@ describe('parseSearchQuery', () => {
       intent: 'catalog',
       catalogQuery: 'NGC7000',
       commandPrefix: 'ngc',
+    });
+    expect(parseSearchQuery('hip: 70890')).toMatchObject({
+      intent: 'catalog',
+      catalogQuery: 'HIP70890',
+      commandPrefix: 'hip',
     });
   });
 

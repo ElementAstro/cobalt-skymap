@@ -17,11 +17,17 @@ jest.mock('@/lib/services/geocoding-service', () => ({
   },
 }));
 
+jest.mock('@/lib/services/location-acquisition', () => ({
+  acquireCurrentLocation: jest.fn(),
+}));
+
 import { geocodingService } from '@/lib/services/geocoding-service';
+import { acquireCurrentLocation } from '@/lib/services/location-acquisition';
 
 const mockGeocode = geocodingService.geocode as jest.Mock;
 const mockReverseGeocode = geocodingService.reverseGeocode as jest.Mock;
 const mockGetSearchCapabilities = geocodingService.getSearchCapabilities as jest.Mock;
+const mockAcquireCurrentLocation = acquireCurrentLocation as jest.Mock;
 
 // Mock UI components - Input must be defined inline to avoid hoisting issues
 jest.mock('@/components/ui/input', () => ({
@@ -100,6 +106,17 @@ describe('LocationSearch', () => {
       autocompleteAvailable: true,
       mode: 'online-autocomplete',
       providers: ['google'],
+    });
+    mockAcquireCurrentLocation.mockResolvedValue({
+      status: 'success',
+      source: 'browser',
+      location: {
+        latitude: 35.6762,
+        longitude: 139.6503,
+        altitude: null,
+        accuracy: 10,
+        timestamp: 1704067200000,
+      },
     });
     
     // Mock localStorage
@@ -400,22 +417,7 @@ describe('LocationSearch', () => {
   });
 
   describe('Current Location', () => {
-    it('handles current location when geolocation is available', async () => {
-      const mockGeolocation = {
-        getCurrentPosition: jest.fn().mockImplementation((success) =>
-          success({
-            coords: {
-              latitude: 35.6762,
-              longitude: 139.6503,
-            },
-          })
-        ),
-      };
-      Object.defineProperty(navigator, 'geolocation', {
-        value: mockGeolocation,
-        writable: true,
-      });
-
+    it('shows current location action', async () => {
       mockReverseGeocode.mockResolvedValue({
         displayName: 'Tokyo, Japan',
         address: 'Tokyo',
@@ -707,16 +709,11 @@ describe('LocationSearch', () => {
   });
 
   describe('Geolocation Edge Cases', () => {
-    it('handles geolocation error callback', async () => {
-      const mockGeolocation = {
-        getCurrentPosition: jest.fn().mockImplementation(
-          (_success: unknown, error: (arg: { code: number; message: string }) => void) =>
-            error({ code: 1, message: 'Permission denied' })
-        ),
-      };
-      Object.defineProperty(navigator, 'geolocation', {
-        value: mockGeolocation,
-        writable: true,
+    it('shows denied-location message when current location permission is denied', async () => {
+      mockAcquireCurrentLocation.mockResolvedValue({
+        status: 'permission_denied',
+        source: 'browser',
+        message: 'Permission denied',
       });
 
       render(
@@ -736,22 +733,12 @@ describe('LocationSearch', () => {
       fireEvent.click(screen.getByText(/map\.currentLocation|Current Location/));
 
       await waitFor(() => {
-        expect(mockGeolocation.getCurrentPosition).toHaveBeenCalled();
+        expect(mockAcquireCurrentLocation).toHaveBeenCalled();
+        expect(screen.getByText(/map\.locationPermissionDenied|Location permission denied/)).toBeInTheDocument();
       });
     });
 
     it('falls back to coordinates string when reverse geocode fails', async () => {
-      const mockGeolocation = {
-        getCurrentPosition: jest.fn().mockImplementation(
-          (success: (arg: { coords: { latitude: number; longitude: number } }) => void) =>
-            success({ coords: { latitude: 35.6762, longitude: 139.6503 } })
-        ),
-      };
-      Object.defineProperty(navigator, 'geolocation', {
-        value: mockGeolocation,
-        writable: true,
-      });
-
       mockReverseGeocode.mockRejectedValue(new Error('Reverse geocode failed'));
 
       render(

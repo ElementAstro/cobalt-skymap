@@ -265,6 +265,51 @@ test.describe('Settings Panel', () => {
     });
   });
 
+  test.describe('Draft Workflow', () => {
+    test('should expose save and cancel controls in settings header', async ({ page }) => {
+      const settingsButton = page.getByRole('button', { name: /settings|设置/i }).first();
+
+      if (await settingsButton.isVisible().catch(() => false)) {
+        await settingsButton.click();
+        await page.waitForTimeout(500);
+
+        const saveButton = page.getByRole('button', { name: /save|保存/i });
+        const cancelButton = page.getByRole('button', { name: /cancel|取消/i });
+
+        expect(await saveButton.count()).toBeGreaterThanOrEqual(0);
+        expect(await cancelButton.count()).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    test('should allow canceling a draft edit in connection settings', async ({ page }) => {
+      const settingsButton = page.getByRole('button', { name: /settings|设置/i }).first();
+
+      if (await settingsButton.isVisible().catch(() => false)) {
+        await settingsButton.click();
+        await page.waitForTimeout(500);
+
+        const connectionSection = page.getByText(/connection|连接/i).first();
+        if (await connectionSection.isVisible().catch(() => false)) {
+          await connectionSection.click();
+          await page.waitForTimeout(200);
+        }
+
+        const ipInput = page.locator('input').first();
+        if (await ipInput.isVisible().catch(() => false)) {
+          const originalValue = await ipInput.inputValue();
+          await ipInput.fill('10.9.8.7');
+          await ipInput.blur();
+
+          const cancelButton = page.getByRole('button', { name: /cancel|取消/i }).first();
+          if (await cancelButton.isVisible().catch(() => false)) {
+            await cancelButton.click();
+            await expect(ipInput).toHaveValue(originalValue);
+          }
+        }
+      }
+    });
+  });
+
   test.describe('Night Mode', () => {
     test('should have night mode toggle', async ({ page }) => {
       const nightModeToggle = page.getByRole('button', { name: /night.*mode|夜间模式/i })

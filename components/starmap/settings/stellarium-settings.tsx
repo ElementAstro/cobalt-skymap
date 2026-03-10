@@ -41,7 +41,7 @@ export function StellariumSettings() {
           <p>{t('settings.displaySettings')}</p>
         </TooltipContent>
       </Tooltip>
-      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-md max-h-[85vh] max-h-[85dvh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{t('settings.displaySettings')}</DialogTitle>
         </DialogHeader>

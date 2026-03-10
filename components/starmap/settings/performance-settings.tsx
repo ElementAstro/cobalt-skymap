@@ -18,15 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useSettingsStore } from '@/lib/stores';
 import type { RenderQuality } from '@/lib/stores/settings-store';
+import { usePerformanceDraftModel } from '@/lib/hooks/use-settings-draft';
 import { SettingsSection, ToggleItem } from './settings-shared';
 
 export function PerformanceSettings() {
   const t = useTranslations();
   
-  const performance = useSettingsStore((state) => state.performance);
-  const setPerformanceSetting = useSettingsStore((state) => state.setPerformanceSetting);
+  const { performance, setPerformanceSetting } = usePerformanceDraftModel();
 
   const getQualityDescription = (quality: RenderQuality) => {
     switch (quality) {

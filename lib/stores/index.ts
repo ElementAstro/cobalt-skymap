@@ -15,6 +15,7 @@ export {
   type EopUpdatePolicy,
   type MobileFeaturePreferences,
 } from './settings-store';
+export { useSettingsSessionStore } from './settings-session-store';
 export { useFramingStore } from './framing-store';
 export { useMountStore } from './mount-store';
 
@@ -155,6 +156,10 @@ export {
 
 // Planning UI bridge store
 export { usePlanningUiStore } from './planning-ui-store';
+export {
+  useStarmapMobileUiStore,
+  type StarmapMobilePanelId,
+} from './starmap-mobile-ui-store';
 
 // Session plan store
 export {

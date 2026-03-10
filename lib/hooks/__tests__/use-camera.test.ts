@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useCamera } from '../use-camera';
 
 // Mock MediaStream
@@ -43,12 +43,18 @@ Object.defineProperty(global.navigator, 'mediaDevices', {
 
 describe('useCamera', () => {
   let mockStream: MockMediaStream;
+  let visibilityState: DocumentVisibilityState = 'visible';
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockStream = new MockMediaStream();
     mockGetUserMedia.mockResolvedValue(mockStream);
     mockEnumerateDevices.mockResolvedValue([]);
+    visibilityState = 'visible';
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibilityState,
+    });
   });
 
   describe('initialization', () => {
@@ -294,6 +300,63 @@ describe('useCamera', () => {
       unmount();
 
       expect(mockStream.getTracks()[0].stop).toHaveBeenCalled();
+    });
+  });
+
+  describe('visibility lifecycle', () => {
+    it('pauses stream on hidden and resumes on visible', async () => {
+      const { result } = renderHook(() => useCamera());
+
+      await act(async () => {
+        await result.current.start();
+      });
+      expect(result.current.stream).toBeTruthy();
+
+      visibilityState = 'hidden';
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+
+      expect(result.current.stream).toBeNull();
+      expect(mockStream.getTracks()[0].stop).toHaveBeenCalled();
+
+      const resumedStream = new MockMediaStream();
+      mockGetUserMedia.mockResolvedValue(resumedStream);
+
+      visibilityState = 'visible';
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+
+      await waitFor(() => {
+        expect(mockGetUserMedia).toHaveBeenCalledTimes(2);
+        expect(result.current.stream).toBeTruthy();
+      });
+    });
+
+    it('does not auto-resume after explicit stop', async () => {
+      const { result } = renderHook(() => useCamera());
+
+      await act(async () => {
+        await result.current.start();
+      });
+
+      act(() => {
+        result.current.stop();
+      });
+
+      visibilityState = 'hidden';
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      visibilityState = 'visible';
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+
+      await waitFor(() => {
+        expect(mockGetUserMedia).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

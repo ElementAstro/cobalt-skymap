@@ -720,7 +720,7 @@ export function ObservationLog({ currentSelection }: ObservationLogProps) {
                   <Separator />
 
                   {/* Sessions List */}
-                  <ScrollArea className="h-[calc(100vh-320px)] min-h-0">
+                  <ScrollArea className="h-[calc(100vh-320px)] h-[calc(100dvh-320px)] min-h-0">
                     {loading ? (
                       <div className="text-center py-8 text-muted-foreground">
                         {t('common.loading')}

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tauri::AppHandle;
+#[cfg(not(desktop))]
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 use super::storage::StorageError;

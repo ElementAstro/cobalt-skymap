@@ -3,11 +3,14 @@
 import { useMemo, memo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useStellariumStore } from '@/lib/stores';
+import { useARRuntimeStore } from '@/lib/stores/ar-runtime-store';
 import { rad2deg } from '@/lib/astronomy/starmap-utils';
 import { cn } from '@/lib/utils';
+import type { ARSessionStatus } from '@/lib/core/ar-session';
 
 interface ARCompassOverlayProps {
   enabled: boolean;
+  sessionStatus?: ARSessionStatus;
 }
 
 const COMPASS_POINTS = [
@@ -28,9 +31,13 @@ function normalizeAz(deg: number): number {
   return ((deg % 360) + 360) % 360;
 }
 
-export const ARCompassOverlay = memo(function ARCompassOverlay({ enabled }: ARCompassOverlayProps) {
+export const ARCompassOverlay = memo(function ARCompassOverlay({
+  enabled,
+  sessionStatus,
+}: ARCompassOverlayProps) {
   const t = useTranslations();
   const viewDirection = useStellariumStore((s) => s.viewDirection);
+  const sensorRuntime = useARRuntimeStore((state) => state.sensor);
 
   const azDeg = useMemo(() => {
     if (!viewDirection) return 0;
@@ -84,12 +91,54 @@ export const ARCompassOverlay = memo(function ARCompassOverlay({ enabled }: ARCo
     return result;
   }, [azDeg]);
 
-  if (!enabled) return null;
+  const canRenderCompass = enabled;
+
+  if (!canRenderCompass) return null;
+
+  const sensorStatus = sensorRuntime.status;
+  const showFallbackOnly =
+    sensorStatus === 'permission-required' ||
+    sensorStatus === 'permission-denied' ||
+    sensorStatus === 'unsupported' ||
+    sensorStatus === 'error';
+  const isReliablePointing = sensorStatus === 'active';
+  const degradedHint = sensorRuntime.degradedReason === 'relative-source'
+    ? t('settings.sensorDegradedRelativeSource')
+    : sensorRuntime.degradedReason === 'low-confidence'
+      ? t('settings.sensorDegradedLowConfidence')
+      : sensorRuntime.degradedReason === 'stale-sample'
+        ? t('settings.sensorDegradedStaleSample')
+        : null;
+  const fallbackMessage = sensorStatus === 'permission-required' || sensorStatus === 'permission-denied'
+    ? t('settings.sensorFallbackRequestPermission')
+    : sensorStatus === 'calibration-required'
+      ? t('settings.sensorFallbackCalibrate')
+      : sensorStatus === 'unsupported'
+        ? t('settings.sensorStatusUnsupported')
+        : sensorStatus === 'error'
+          ? (sensorRuntime.error ?? t('common.error'))
+          : degradedHint;
 
   return (
-    <div className="absolute top-12 left-0 right-0 z-20 pointer-events-none flex flex-col items-center" data-testid="ar-compass-overlay">
+    <div
+      className="absolute left-0 right-0 z-20 pointer-events-none flex flex-col items-center"
+      style={{ top: 'calc(3rem + var(--safe-area-top))' }}
+      data-testid="ar-compass-overlay"
+      data-ar-session-status={sessionStatus ?? 'unknown'}
+    >
+      {showFallbackOnly ? (
+        <div className="rounded-md border border-white/15 bg-black/45 px-3 py-2 text-[10px] text-white/90 backdrop-blur-sm">
+          {fallbackMessage ?? t('settings.sensorContinueManualNavigation')}
+        </div>
+      ) : (
+        <>
       {/* Compass bar */}
-      <div className="relative w-64 sm:w-80 h-8 bg-black/30 backdrop-blur-sm rounded-lg overflow-hidden border border-white/10">
+      <div
+        className={cn(
+          'relative w-64 sm:w-80 h-8 bg-black/30 backdrop-blur-sm rounded-lg overflow-hidden border border-white/10',
+          !isReliablePointing && 'opacity-75'
+        )}
+      >
         {/* Center indicator */}
         <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/60 -translate-x-1/2 z-10" />
         <div className="absolute left-1/2 top-0 w-0 h-0 -translate-x-1/2 z-10 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent border-t-white/70" />
@@ -122,15 +171,23 @@ export const ARCompassOverlay = memo(function ARCompassOverlay({ enabled }: ARCo
       </div>
 
       {/* Numeric readout */}
-      <div className="flex items-center gap-3 mt-1 text-[10px] font-mono text-white/70">
-        <span>{azDeg.toFixed(1)}°</span>
-        <span className={cn(
-          altDeg > 30 ? 'text-green-400/70' :
-          altDeg > 0 ? 'text-yellow-400/70' : 'text-red-400/70'
-        )}>
-          Alt {altDeg.toFixed(1)}°
-        </span>
-      </div>
+      {isReliablePointing ? (
+        <div className="flex items-center gap-3 mt-1 text-[10px] font-mono text-white/70">
+          <span>{azDeg.toFixed(1)}°</span>
+          <span className={cn(
+            altDeg > 30 ? 'text-green-400/70' :
+            altDeg > 0 ? 'text-yellow-400/70' : 'text-red-400/70'
+          )}>
+            Alt {altDeg.toFixed(1)}°
+          </span>
+        </div>
+      ) : (
+        <div className="mt-1 rounded bg-black/35 px-2 py-0.5 text-[10px] text-white/80">
+          {fallbackMessage ?? t('settings.sensorContinueManualNavigation')}
+        </div>
+      )}
+        </>
+      )}
     </div>
   );
 });

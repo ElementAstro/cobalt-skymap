@@ -4,6 +4,7 @@ import { useState, useCallback, memo } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight, History, Trash2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ButtonGroup } from '@/components/ui/button-group';
 import {
   Popover,
   PopoverContent,
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Separator } from '@/components/ui/separator';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { cn } from '@/lib/utils';
 import {
   useNavigationHistoryStore,
@@ -77,66 +79,67 @@ export const NavigationHistory = memo(function NavigationHistory({ onNavigate, c
 
   return (
     <div className={cn('flex items-center gap-0.5', className)} role="navigation" aria-label={t('navigation.viewHistory')}>
-      {/* Back Button */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent disabled:opacity-30"
-            onClick={handleBack}
-            disabled={!isBackEnabled}
-            aria-label={t('navigation.back')}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <p>{t('navigation.back')}</p>
-        </TooltipContent>
-      </Tooltip>
-
-      {/* Forward Button */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent disabled:opacity-30"
-            onClick={handleForward}
-            disabled={!isForwardEnabled}
-            aria-label={t('navigation.forward')}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <p>{t('navigation.forward')}</p>
-        </TooltipContent>
-      </Tooltip>
-
-      {/* History Dropdown */}
-      <Popover>
+      <ButtonGroup role="presentation" className="gap-0.5">
+        {/* Back Button */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent"
-                aria-label={t('navigation.history')}
-                data-tour-id="navigation-history"
-              >
-                <History className="h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent disabled:opacity-30"
+              onClick={handleBack}
+              disabled={!isBackEnabled}
+              aria-label={t('navigation.back')}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            <p>{t('navigation.history')}</p>
+            <p>{t('navigation.back')}</p>
           </TooltipContent>
         </Tooltip>
 
-        <PopoverContent className="w-72 p-0 animate-in fade-in zoom-in-95 slide-in-from-top-2" align="end">
+        {/* Forward Button */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent disabled:opacity-30"
+              onClick={handleForward}
+              disabled={!isForwardEnabled}
+              aria-label={t('navigation.forward')}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>{t('navigation.forward')}</p>
+          </TooltipContent>
+        </Tooltip>
+
+        {/* History Dropdown */}
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent"
+                  aria-label={t('navigation.history')}
+                  data-tour-id="navigation-history"
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{t('navigation.history')}</p>
+            </TooltipContent>
+          </Tooltip>
+
+          <PopoverContent className="w-72 p-0 animate-in fade-in zoom-in-95 slide-in-from-top-2" align="end">
           <div className="flex items-center justify-between px-3 py-2 border-b">
             <h4 className="font-medium text-sm flex items-center gap-2">
               <History className="h-4 w-4" />
@@ -161,66 +164,75 @@ export const NavigationHistory = memo(function NavigationHistory({ onNavigate, c
             )}
           </div>
 
-          <ScrollArea className="max-h-64">
-            {history.length === 0 ? (
-              <EmptyState
-                icon={MapPin}
-                message={t('navigation.noHistory')}
-                iconClassName="opacity-30"
-              />
-            ) : (
-              <div className="py-1">
-                {[...history].reverse().map((point, reverseIndex) => {
-                  const actualIndex = history.length - 1 - reverseIndex;
-                  const isCurrent = actualIndex === currentIndex;
-                  
-                  return (
-                    <button
-                      key={point.id}
-                      className={cn(
-                        'w-full px-3 py-2 text-left hover:bg-accent transition-colors',
-                        isCurrent && 'bg-primary/10 border-l-2 border-primary'
-                      )}
-                      onClick={() => handleSelectPoint(point, actualIndex)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <MapPin className={cn(
-                          'h-3 w-3 shrink-0',
-                          isCurrent ? 'text-primary' : 'text-muted-foreground'
-                        )} />
-                        <div className="flex-1 min-w-0">
-                          <p className={cn(
-                            'text-sm truncate',
-                            isCurrent && 'font-medium text-primary'
-                          )}>
-                            {formatNavigationPoint(point)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {t('navigation.fovLabel')}: {point.fov.toFixed(1)}° • {formatTimestamp(point.timestamp, {
-                              justNow: t('navigation.justNow'),
-                              minutesAgo: (mins) => t('navigation.minutesAgo', { count: mins }),
-                              hoursAgo: (hours) => t('navigation.hoursAgo', { count: hours }),
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </ScrollArea>
+            <ScrollArea className="max-h-64">
+              {history.length === 0 ? (
+                <EmptyState
+                  icon={MapPin}
+                  message={t('navigation.noHistory')}
+                  iconClassName="opacity-30"
+                />
+              ) : (
+                <ItemGroup className="py-1">
+                  {[...history].reverse().map((point, reverseIndex) => {
+                    const actualIndex = history.length - 1 - reverseIndex;
+                    const isCurrent = actualIndex === currentIndex;
+                    
+                    return (
+                      <Item
+                        key={point.id}
+                        asChild
+                        variant={isCurrent ? 'muted' : 'default'}
+                        size="sm"
+                        className={cn(
+                          'w-full rounded-none border-0 px-3 py-2 hover:bg-accent/80',
+                          isCurrent && 'bg-primary/10 border-l-2 border-l-primary'
+                        )}
+                      >
+                        <button
+                          type="button"
+                          className="cursor-pointer text-left"
+                          onClick={() => handleSelectPoint(point, actualIndex)}
+                        >
+                          <ItemMedia className="h-auto w-auto shrink-0 bg-transparent p-0">
+                            <MapPin className={cn(
+                              'h-3 w-3 shrink-0',
+                              isCurrent ? 'text-primary' : 'text-muted-foreground'
+                            )} />
+                          </ItemMedia>
+                          <ItemContent className="min-w-0 gap-0">
+                            <ItemTitle className={cn(
+                              'truncate',
+                              isCurrent && 'text-primary'
+                            )}>
+                              {formatNavigationPoint(point)}
+                            </ItemTitle>
+                            <ItemDescription className="line-clamp-1 text-xs text-muted-foreground">
+                              {t('navigation.fovLabel')}: {point.fov.toFixed(1)}° • {formatTimestamp(point.timestamp, {
+                                justNow: t('navigation.justNow'),
+                                minutesAgo: (mins) => t('navigation.minutesAgo', { count: mins }),
+                                hoursAgo: (hours) => t('navigation.hoursAgo', { count: hours }),
+                              })}
+                            </ItemDescription>
+                          </ItemContent>
+                        </button>
+                      </Item>
+                    );
+                  })}
+                </ItemGroup>
+              )}
+            </ScrollArea>
 
-          {history.length > 0 && (
-            <>
-              <Separator />
-              <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                {t('navigation.historyCount', { count: history.length })}
-              </div>
-            </>
-          )}
-        </PopoverContent>
-      </Popover>
+            {history.length > 0 && (
+              <>
+                <Separator />
+                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                  {t('navigation.historyCount', { count: history.length })}
+                </div>
+              </>
+            )}
+          </PopoverContent>
+        </Popover>
+      </ButtonGroup>
       {/* Clear History Confirmation */}
       <AlertDialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
         <AlertDialogContent>

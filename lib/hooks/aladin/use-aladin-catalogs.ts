@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState, type RefObject } from 'react';
 import type A from 'aladin-lite';
 import { useSettingsStore } from '@/lib/stores/settings-store';
-import { useStellariumStore } from '@/lib/stores';
+import { useStellariumStore } from '@/lib/stores/stellarium-store';
 import { useAladinStore, type AladinCatalogLayer } from '@/lib/stores/aladin-store';
 import { getFoVCompat } from '@/lib/aladin/aladin-compat';
 import { createLogger } from '@/lib/logger';

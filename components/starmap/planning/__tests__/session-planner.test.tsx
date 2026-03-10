@@ -213,6 +213,7 @@ const mockTargetStoreState = {
     isArchived: false,
   }],
   setActiveTarget: jest.fn(),
+  addTargetsBatch: jest.fn(),
 };
 
 jest.mock('@/lib/stores/target-list-store', () => ({
@@ -380,5 +381,20 @@ describe('SessionPlanner', () => {
     render(<SessionPlanner />);
 
     expect(screen.getByRole('button', { name: 'sessionPlanner.continueExecution' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'sessionPlanner.replanRemaining' })).toBeInTheDocument();
+  });
+
+  it('blocks save when session window is incomplete', () => {
+    render(<SessionPlanner />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'sessionPlanner.optimizationSettings' }));
+    const startInput = screen.getByLabelText('sessionPlanner.sessionWindowStart') as HTMLInputElement;
+    const endInput = screen.getByLabelText('sessionPlanner.sessionWindowEnd') as HTMLInputElement;
+    fireEvent.change(startInput, { target: { value: '21:00' } });
+    fireEvent.change(endInput, { target: { value: '' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'sessionPlanner.savePlan' }));
+
+    expect(mockSessionPlanState.savePlan).not.toHaveBeenCalled();
   });
 });

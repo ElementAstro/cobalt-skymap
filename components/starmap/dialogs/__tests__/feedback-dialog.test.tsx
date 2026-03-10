@@ -178,6 +178,31 @@ describe('FeedbackDialog', () => {
     expect(screen.getByTestId('custom-trigger')).toBeInTheDocument();
   });
 
+  it('uses drawer container on narrow viewport', () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: jest.fn().mockImplementation((query: string) => ({
+        matches: query === '(max-width: 640px)',
+        media: query,
+        onchange: null,
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        addListener: jest.fn(),
+        removeListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+      })),
+    });
+
+    render(<FeedbackDialog open onOpenChange={jest.fn()} />);
+    expect(document.querySelector('[data-slot="drawer-content"]')).toBeInTheDocument();
+
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
   // ========================================================================
   // validateDraft branches
   // ========================================================================
@@ -452,6 +477,7 @@ describe('FeedbackDialog', () => {
     render(<FeedbackDialog open onOpenChange={jest.fn()} />);
 
     fireEvent.click(screen.getByTestId('feedback-reset-button'));
+    fireEvent.click(screen.getByTestId('feedback-reset-confirm-button'));
 
     expect(toast.info).toHaveBeenCalledWith('feedback.toast.draftCleared');
     const { draft } = useFeedbackStore.getState();

@@ -12,13 +12,16 @@ import {
 import { altAzToRaDec } from '@/lib/astronomy/coordinates/transforms';
 import { rad2deg } from '@/lib/astronomy/starmap-utils';
 import { useMountStore, useSettingsStore, useStellariumStore } from '@/lib/stores';
+import { useARRuntimeStore } from '@/lib/stores/ar-runtime-store';
 import {
   useDeviceOrientation,
+  type SensorDegradedReason,
   type SkyDirection,
   type SensorCalibrationState,
   type SensorStatus,
 } from '@/lib/hooks/use-device-orientation';
 import { useIsClient } from '@/lib/hooks/use-is-client';
+import { useARSessionStatus } from '@/lib/hooks/use-ar-session-status';
 import { cn } from '@/lib/utils';
 import { SensorCalibrationDialog } from './sensor-calibration-dialog';
 
@@ -33,6 +36,8 @@ function getStatusClass(status: SensorStatus): string {
       return 'bg-emerald-500';
     case 'calibration-required':
       return 'bg-amber-500';
+    case 'degraded':
+      return 'bg-yellow-500';
     case 'permission-denied':
     case 'error':
       return 'bg-red-500';
@@ -51,6 +56,8 @@ export function SensorControlToggle({ className, showStatusLabel = false }: Sens
   const setViewDirection = useStellariumStore((state) => state.setViewDirection);
   const getCurrentViewDirection = useStellariumStore((state) => state.getCurrentViewDirection);
   const viewDirection = useStellariumStore((state) => state.viewDirection);
+  const setSensorRuntime = useARRuntimeStore((state) => state.setSensorRuntime);
+  const resetSensorRuntime = useARRuntimeStore((state) => state.resetSensorRuntime);
   const [calibrationDialogOpen, setCalibrationDialogOpen] = useState(false);
   
   // Track if component is on client to avoid hydration mismatch
@@ -104,6 +111,7 @@ export function SensorControlToggle({ className, showStatusLabel = false }: Sens
     status,
     source,
     accuracyDeg,
+    degradedReason,
     calibration,
     requestPermission,
     calibrateToCurrentView,
@@ -120,6 +128,35 @@ export function SensorControlToggle({ className, showStatusLabel = false }: Sens
     onCalibrationChange: handleCalibrationChange,
     onOrientationChange: handleOrientationChange,
   });
+  const arSession = useARSessionStatus({ enabled: stellarium.arMode });
+
+  useEffect(() => {
+    setSensorRuntime({
+      isSupported,
+      isPermissionGranted,
+      status,
+      calibrationRequired: calibration.required,
+      degradedReason,
+      source,
+      accuracyDeg,
+      error,
+    });
+  }, [
+    accuracyDeg,
+    calibration.required,
+    degradedReason,
+    error,
+    isPermissionGranted,
+    isSupported,
+    setSensorRuntime,
+    source,
+    status,
+  ]);
+
+  useEffect(() => {
+    if (sensorControl || stellarium.arMode) return;
+    resetSensorRuntime();
+  }, [resetSensorRuntime, sensorControl, stellarium.arMode]);
 
   const handleCalibrateNow = useCallback(() => {
     const latitude = profileInfo.AstrometrySettings.Latitude;
@@ -153,6 +190,20 @@ export function SensorControlToggle({ className, showStatusLabel = false }: Sens
     getCurrentViewDirection,
     calibrateToCurrentView,
   ]);
+
+  const handleRetryPermission = useCallback(async () => {
+    const granted = await requestPermission();
+    if (granted && !sensorControl) {
+      toggleStellariumSetting('sensorControl');
+    }
+  }, [requestPermission, sensorControl, toggleStellariumSetting]);
+
+  const getDegradedReasonText = useCallback((reason: SensorDegradedReason | null) => {
+    if (reason === 'relative-source') return t('settings.sensorDegradedRelativeSource');
+    if (reason === 'low-confidence') return t('settings.sensorDegradedLowConfidence');
+    if (reason === 'stale-sample') return t('settings.sensorDegradedStaleSample');
+    return t('settings.sensorStatusDegraded');
+  }, [t]);
 
   // Handle toggle click
   const handleToggle = useCallback(async () => {
@@ -192,9 +243,11 @@ export function SensorControlToggle({ className, showStatusLabel = false }: Sens
 
   const getTooltipText = () => {
     if (!isSupported) return t('settings.sensorStatusUnsupported');
-    if (error) return error;
     if (status === 'permission-denied') return t('settings.sensorStatusPermissionDenied');
+    if (status === 'permission-required') return t('settings.sensorControlPermission');
     if (status === 'calibration-required') return t('settings.sensorCalibrationRequired');
+    if (status === 'degraded') return getDegradedReasonText(degradedReason);
+    if (error) return error;
     if (!isPermissionGranted) return t('settings.sensorControlPermission');
     if (status === 'active' && accuracyDeg !== null) {
       return `${t('settings.sensorAccuracy')}: ±${accuracyDeg.toFixed(1)}° (${source})`;
@@ -204,13 +257,17 @@ export function SensorControlToggle({ className, showStatusLabel = false }: Sens
 
   const statusText = status === 'active'
     ? t('settings.sensorStatusActive')
+    : status === 'degraded'
+      ? t('settings.sensorStatusDegraded')
     : status === 'permission-denied'
       ? t('settings.sensorStatusPermissionDenied')
       : status === 'calibration-required'
         ? t('settings.sensorCalibrationRequired')
         : !isSupported
           ? t('settings.sensorStatusUnsupported')
-          : null;
+          : stellarium.arMode && arSession.status === 'degraded-camera-only'
+            ? t('settings.arStatusDegradedCameraOnly')
+            : null;
 
   const button = (
     <Tooltip>
@@ -267,6 +324,21 @@ export function SensorControlToggle({ className, showStatusLabel = false }: Sens
             >
               {t('settings.sensorCalibrateNow')}
             </Button>
+          )}
+          {(status === 'permission-required' || status === 'permission-denied') && (
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-[10px]"
+              onClick={() => void handleRetryPermission()}
+            >
+              {t('settings.sensorRetryPermission')}
+            </Button>
+          )}
+          {status === 'degraded' && (
+            <span className="text-[10px] text-muted-foreground leading-tight text-center">
+              {getDegradedReasonText(degradedReason)}
+            </span>
           )}
           {!calibration.required && (
             <Button

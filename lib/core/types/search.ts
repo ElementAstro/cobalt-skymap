@@ -19,12 +19,25 @@ export type SearchResultType =
   | 'Constellation' 
   | 'Coordinates';
 
+export type SearchRunOutcome = 'success' | 'partial_success' | 'empty' | 'error';
+
+export type SearchMessageLevel = 'warning' | 'error';
+
+export interface SearchRunMessage {
+  source: string;
+  level: SearchMessageLevel;
+  message: string;
+  code?: string;
+}
+
 export interface SearchResultItem {
   Name: string;
   Type?: SearchResultType;
   RA?: number;
   Dec?: number;
   'Common names'?: string;
+  CanonicalId?: string;
+  Identifiers?: string[];
   M?: string;
   Magnitude?: number;
   Size?: string;
@@ -34,6 +47,7 @@ export interface SearchResultItem {
   _onlineSource?: string;
   _sourcePriority?: number;
   _angularSeparation?: number; // arcsec from coordinate query center
+  _stableId?: string;
   _currentAltitude?: number;
   _isVisible?: boolean;
   _transitTime?: Date;

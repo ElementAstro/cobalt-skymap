@@ -79,7 +79,7 @@ export function ThemeCustomizer({ trigger, open, onOpenChange }: ThemeCustomizer
       <DialogTrigger asChild>
         {trigger ?? defaultTrigger}
       </DialogTrigger>
-      <DialogContent className="max-w-lg max-h-[85vh]">
+      <DialogContent className="max-w-lg max-h-[85vh] max-h-[85dvh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Palette className="h-5 w-5" />
@@ -90,7 +90,7 @@ export function ThemeCustomizer({ trigger, open, onOpenChange }: ThemeCustomizer
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh] pr-4">
+        <ScrollArea className="max-h-[60vh] max-h-[60dvh] pr-4">
           <Tabs defaultValue="presets" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="presets" className="gap-1">

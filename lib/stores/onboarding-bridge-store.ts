@@ -4,6 +4,7 @@ interface OnboardingBridgeState {
   expandRightPanelRequestId: number;
   openSettingsDrawerRequestId: number;
   settingsDrawerTab: string | null;
+  settingsDrawerOpen: boolean;
   openSearchRequestId: number;
   openMobileDrawerRequestId: number;
   openDailyKnowledgeRequestId: number;
@@ -12,6 +13,7 @@ interface OnboardingBridgeState {
 
   expandRightPanel: () => void;
   openSettingsDrawer: (tab?: string) => void;
+  setSettingsDrawerOpen: (open: boolean) => void;
   openSearch: () => void;
   openMobileDrawer: (section?: string) => void;
   openDailyKnowledge: () => void;
@@ -23,6 +25,7 @@ export const useOnboardingBridgeStore = create<OnboardingBridgeState>()(
     expandRightPanelRequestId: 0,
     openSettingsDrawerRequestId: 0,
     settingsDrawerTab: null,
+    settingsDrawerOpen: false,
     openSearchRequestId: 0,
     openMobileDrawerRequestId: 0,
     openDailyKnowledgeRequestId: 0,
@@ -38,7 +41,10 @@ export const useOnboardingBridgeStore = create<OnboardingBridgeState>()(
       set((state) => ({
         openSettingsDrawerRequestId: state.openSettingsDrawerRequestId + 1,
         settingsDrawerTab: tab ?? null,
+        settingsDrawerOpen: true,
       })),
+
+    setSettingsDrawerOpen: (open) => set({ settingsDrawerOpen: open }),
 
     openSearch: () =>
       set((state) => ({

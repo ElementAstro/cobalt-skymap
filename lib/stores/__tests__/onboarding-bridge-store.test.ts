@@ -12,6 +12,7 @@ beforeEach(() => {
       expandRightPanelRequestId: 0,
       openSettingsDrawerRequestId: 0,
       settingsDrawerTab: null,
+      settingsDrawerOpen: false,
       openSearchRequestId: 0,
       openMobileDrawerRequestId: 0,
       openDailyKnowledgeRequestId: 0,
@@ -35,6 +36,7 @@ describe('useOnboardingBridgeStore', () => {
     });
     expect(useOnboardingBridgeStore.getState().openSettingsDrawerRequestId).toBe(1);
     expect(useOnboardingBridgeStore.getState().settingsDrawerTab).toBe('display');
+    expect(useOnboardingBridgeStore.getState().settingsDrawerOpen).toBe(true);
   });
 
   it('should default settingsDrawerTab to null', () => {
@@ -42,6 +44,18 @@ describe('useOnboardingBridgeStore', () => {
       useOnboardingBridgeStore.getState().openSettingsDrawer();
     });
     expect(useOnboardingBridgeStore.getState().settingsDrawerTab).toBeNull();
+  });
+
+  it('should set settings drawer open state directly', () => {
+    act(() => {
+      useOnboardingBridgeStore.getState().setSettingsDrawerOpen(true);
+    });
+    expect(useOnboardingBridgeStore.getState().settingsDrawerOpen).toBe(true);
+
+    act(() => {
+      useOnboardingBridgeStore.getState().setSettingsDrawerOpen(false);
+    });
+    expect(useOnboardingBridgeStore.getState().settingsDrawerOpen).toBe(false);
   });
 
   it('should increment openSearchRequestId', () => {

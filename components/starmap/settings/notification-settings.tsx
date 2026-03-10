@@ -10,14 +10,13 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { useSettingsStore } from '@/lib/stores';
+import { useNotificationDraftModel } from '@/lib/hooks/use-settings-draft';
 import { SettingsSection, ToggleItem } from './settings-shared';
 
 export function NotificationSettings() {
   const t = useTranslations();
   
-  const notifications = useSettingsStore((state) => state.notifications);
-  const setNotificationSetting = useSettingsStore((state) => state.setNotificationSetting);
+  const { notifications, setNotificationSetting } = useNotificationDraftModel();
 
   return (
     <div className="space-y-4">

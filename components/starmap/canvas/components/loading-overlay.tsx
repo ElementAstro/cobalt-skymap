@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Spinner } from '@/components/common/spinner';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import type { LoadingState } from '@/types/stellarium-canvas';
 
@@ -63,65 +65,76 @@ export function LoadingOverlay({ loadingState, onRetry }: LoadingOverlayProps) {
     };
   }, [progress]);
 
+  const isSlow = isLoading && !errorMessage && elapsed >= SLOW_LOADING_THRESHOLD;
+  const isFirstLoad = isLoading && !errorMessage && elapsed >= 5 && elapsed < SLOW_LOADING_THRESHOLD;
   const showTerminalRetry = !isLoading && (phase === 'timed_out' || phase === 'failed');
+  const showRetry = isSlow || Boolean(errorMessage) || showTerminalRetry;
+  const liveRole: 'status' | 'alert' = errorMessage || showTerminalRetry ? 'alert' : 'status';
 
   // Don't render if not loading and no terminal failure state
   if (!isLoading && !errorMessage && !showTerminalRetry) {
     return null;
   }
 
-  const isSlow = isLoading && !errorMessage && elapsed >= SLOW_LOADING_THRESHOLD;
-  const isFirstLoad = isLoading && !errorMessage && elapsed >= 5 && elapsed < SLOW_LOADING_THRESHOLD;
-
   return (
     <div
       data-testid="stellarium-loading-overlay"
-      role={errorMessage ? 'alert' : 'status'}
-      aria-live="polite"
-      className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10 px-4 text-center"
+      role={liveRole}
+      aria-live={liveRole === 'alert' ? 'assertive' : 'polite'}
+      className="absolute inset-0 z-10 flex items-center justify-center bg-black/85 px-4"
     >
-      {isLoading && !errorMessage && (
-        <Spinner className="h-8 w-8 text-primary mb-4" />
-      )}
+      <Card className="w-full max-w-80 border-border/70 bg-background/95 py-4 shadow-lg backdrop-blur-sm">
+        <CardContent className="px-4">
+          <div className="flex flex-col items-center text-center">
+            {isLoading && !errorMessage && (
+              <Spinner className="mb-3 h-8 w-8 text-primary" />
+            )}
 
-      {/* Progress bar */}
-      {isLoading && !errorMessage && (
-        <div className="w-48 sm:w-56 mb-3">
-          <Progress
-            value={Math.round(smoothProgress)}
-            className="h-1.5 bg-muted/30"
-          />
-        </div>
-      )}
+            {isLoading && !errorMessage && (
+              <div className="mb-3 w-52 sm:w-60">
+                <Progress
+                  value={Math.round(smoothProgress)}
+                  className="h-1.5 bg-muted/40"
+                />
+              </div>
+            )}
 
-      <p className="text-muted-foreground text-sm mb-2">{loadingStatus}</p>
+            <p className="mb-2 text-sm text-muted-foreground">{loadingStatus}</p>
 
-      {isLoading && !errorMessage && elapsed >= ELAPSED_SHOW_THRESHOLD && (
-        <p className="text-muted-foreground/60 text-xs mb-1 tabular-nums">
-          {t('elapsedTime', { seconds: elapsed })}
-        </p>
-      )}
-      {isFirstLoad && (
-        <p className="text-muted-foreground/40 text-xs mt-1">{t('firstLoadHint')}</p>
-      )}
-      {isSlow && (
-        <div className="mt-2 flex flex-col items-center gap-2">
-          <p className="text-yellow-500/80 text-xs">{t('loadingSlowHint')}</p>
-          <Button size="sm" onClick={onRetry}>
-            {t('retry')}
-          </Button>
-        </div>
-      )}
-      {(errorMessage || showTerminalRetry) && (
-        <>
-          {errorMessage && (
-            <p className="text-destructive text-xs mb-3">{errorMessage}</p>
-          )}
-          <Button size="sm" onClick={onRetry}>
-            {t('retry')}
-          </Button>
-        </>
-      )}
+            {isLoading && !errorMessage && elapsed >= ELAPSED_SHOW_THRESHOLD && (
+              <p className="mb-1 text-xs tabular-nums text-muted-foreground/70">
+                {t('elapsedTime', { seconds: elapsed })}
+              </p>
+            )}
+
+            {isFirstLoad && (
+              <p className="mt-1 text-xs text-muted-foreground/50">{t('firstLoadHint')}</p>
+            )}
+
+            {isSlow && (
+              <Alert className="mt-3 border-yellow-500/40 bg-yellow-500/15 py-2 text-yellow-100">
+                <AlertDescription className="justify-items-center text-center text-xs text-inherit">
+                  {t('loadingSlowHint')}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {errorMessage && (
+              <Alert variant="destructive" className="mt-3 w-full py-2">
+                <AlertDescription className="justify-items-start text-left text-xs">
+                  {errorMessage}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {showRetry && (
+              <Button className="mt-3" size="sm" onClick={onRetry}>
+                {t('retry')}
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -110,14 +110,14 @@ export const ObjectTypeLegend = memo(function ObjectTypeLegend({
     return (
       <Dialog>
         <DialogTrigger asChild>{triggerButton}</DialogTrigger>
-        <DialogContent className="max-w-md max-h-[80vh]">
+        <DialogContent className="max-w-md max-h-[80vh] max-h-[80dvh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Star className="h-5 w-5 text-primary" />
               {t('objectTypesTitle')}
             </DialogTitle>
           </DialogHeader>
-          <ScrollArea className="max-h-[60vh] pr-4">
+          <ScrollArea className="max-h-[60vh] max-h-[60dvh] pr-4">
             <ObjectTypeLegendContent />
           </ScrollArea>
         </DialogContent>
@@ -133,7 +133,7 @@ export const ObjectTypeLegend = memo(function ObjectTypeLegend({
           <Star className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-semibold">{t('objectTypesTitle')}</h3>
         </div>
-        <ScrollArea className="max-h-[50vh]">
+        <ScrollArea className="max-h-[50vh] max-h-[50dvh]">
           <ObjectTypeLegendContent compact />
         </ScrollArea>
       </PopoverContent>

@@ -241,13 +241,20 @@ export function StarmapLoadingSkeleton() {
       </div>
 
       {/* Toolbar skeleton */}
-      <div className="absolute top-4 left-4 right-4 flex justify-between">
+      <div
+        className="absolute flex justify-between"
+        style={{
+          top: 'calc(1rem + var(--safe-area-top))',
+          left: 'calc(1rem + var(--safe-area-left))',
+          right: 'calc(1rem + var(--safe-area-right))',
+        }}
+      >
         <ToolbarSkeleton />
         <ToolbarSkeleton />
       </div>
 
       {/* Bottom bar skeleton */}
-      <div className="absolute bottom-0 left-0 right-0 h-10 bg-card/50 backdrop-blur-sm border-t border-border/50">
+      <div className="absolute bottom-0 left-0 right-0 h-10 bg-card/50 backdrop-blur-sm border-t border-border/50 safe-area-bottom">
         <div className="flex items-center justify-between px-4 h-full">
           <Skeleton className="h-4 w-48" />
           <Skeleton className="h-4 w-24" />

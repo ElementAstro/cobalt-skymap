@@ -8,7 +8,7 @@ import type { UseObjectSearchReturn } from '@/lib/hooks/use-object-search';
 // ============================================================================
 // Helper: create a complete mock return value for useObjectSearch
 // ============================================================================
-function createMockSearchHook(overrides: Record<string, unknown> = {}) {
+function createMockSearchHook(overrides: Partial<UseObjectSearchReturn> = {}): UseObjectSearchReturn {
   return {
     query: '',
     setQuery: jest.fn(),
@@ -17,6 +17,8 @@ function createMockSearchHook(overrides: Record<string, unknown> = {}) {
     groupedResults: new Map(),
     isSearching: false,
     isOnlineSearching: false,
+    searchOutcome: 'empty' as const,
+    searchMessages: [],
     onlineAvailable: false,
     searchStats: { totalResults: 0, resultsByType: {}, searchTimeMs: 0 },
     filters: {

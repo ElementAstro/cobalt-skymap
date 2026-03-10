@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect, useTransition } from 'react';
 import { useStellariumStore } from '@/lib/stores';
-import type { SearchResultItem } from '@/lib/core/types';
+import type { SearchResultItem, SearchRunMessage, SearchRunOutcome } from '@/lib/core/types';
 import { useTargetListStore } from '@/lib/stores/target-list-store';
 import { useSearchStore } from '@/lib/stores/search-store';
 import { checkOnlineSearchAvailability } from '@/lib/services/online-search-service';
@@ -66,6 +66,8 @@ export interface SearchState {
   results: SearchResultItem[];
   isSearching: boolean;
   isOnlineSearching: boolean;
+  searchOutcome: SearchRunOutcome;
+  searchMessages: SearchRunMessage[];
   selectedIds: Set<string>;
   filters: SearchFilters;
   sortBy: SortOption;
@@ -79,6 +81,8 @@ export interface UseObjectSearchReturn {
   groupedResults: Map<string, SearchResultItem[]>;
   isSearching: boolean;
   isOnlineSearching: boolean;
+  searchOutcome: SearchRunOutcome;
+  searchMessages: SearchRunMessage[];
   selectedIds: Set<string>;
   filters: SearchFilters;
   sortBy: SortOption;
@@ -179,6 +183,8 @@ export function useObjectSearch(): UseObjectSearchReturn {
     results: [],
     isSearching: false,
     isOnlineSearching: false,
+    searchOutcome: 'empty',
+    searchMessages: [],
     selectedIds: new Set(),
     filters: {
       types: ['DSO', 'Planet', 'Star', 'Moon', 'Comet', 'Asteroid', 'TargetList', 'Constellation'],
@@ -487,7 +493,14 @@ export function useObjectSearch(): UseObjectSearchReturn {
     const signal = abortControllerRef.current.signal;
 
     if (!query.trim()) {
-      setState(prev => ({ ...prev, results: [], isSearching: false, isOnlineSearching: false }));
+      setState(prev => ({
+        ...prev,
+        results: [],
+        isSearching: false,
+        isOnlineSearching: false,
+        searchOutcome: 'empty',
+        searchMessages: [],
+      }));
       setSearchStats(null);
       return;
     }
@@ -502,6 +515,7 @@ export function useObjectSearch(): UseObjectSearchReturn {
       ...prev,
       isSearching: true,
       isOnlineSearching: mode !== 'local' && state.onlineAvailable,
+      searchMessages: [],
     }));
 
     try {
@@ -526,35 +540,48 @@ export function useObjectSearch(): UseObjectSearchReturn {
       }
 
       const sorted = sortResults(unified.results, state.sortBy).slice(0, maxSearchResults);
+      const displayResults = unified.outcome === 'success' || unified.outcome === 'partial_success'
+        ? sorted
+        : [];
       const resultsByType: Record<string, number> = {};
-      for (const result of sorted) {
+      for (const result of displayResults) {
         const key = normalizeGroupLabel(searchSettings.groupBySource, result);
         resultsByType[key] = (resultsByType[key] || 0) + 1;
       }
 
       setState(prev => ({
         ...prev,
-        results: sorted,
+        results: displayResults,
         isSearching: false,
         isOnlineSearching: false,
+        searchOutcome: unified.outcome,
+        searchMessages: unified.issues,
       }));
 
       setSearchStats({
-        totalResults: sorted.length,
+        totalResults: displayResults.length,
         resultsByType,
         searchTimeMs: Math.round(performance.now() - startTime),
       });
 
       if (rememberSearchHistory) {
-        addStoreRecentSearch(query, sorted.length, mode === 'local' ? 'local' : mode === 'online' ? 'online' : 'mixed');
+        addStoreRecentSearch(query, displayResults.length, mode === 'local' ? 'local' : mode === 'online' ? 'online' : 'mixed');
       }
     } catch (error) {
       logger.warn('Search failed', error);
       if (!signal.aborted) {
         setState(prev => ({
           ...prev,
+          results: [],
           isSearching: false,
           isOnlineSearching: false,
+          searchOutcome: 'error',
+          searchMessages: [{
+            source: 'search',
+            level: 'error',
+            code: 'SEARCH_EXECUTION_FAILED',
+            message: error instanceof Error ? error.message : 'Search failed',
+          }],
         }));
       }
     }
@@ -596,6 +623,8 @@ export function useObjectSearch(): UseObjectSearchReturn {
       ...prev,
       query: '',
       results: [],
+      searchOutcome: 'empty',
+      searchMessages: [],
       selectedIds: new Set(),
     }));
   }, []);
@@ -715,6 +744,8 @@ export function useObjectSearch(): UseObjectSearchReturn {
     groupedResults,
     isSearching: state.isSearching,
     isOnlineSearching: state.isOnlineSearching,
+    searchOutcome: state.searchOutcome,
+    searchMessages: state.searchMessages,
     selectedIds: state.selectedIds,
     filters: state.filters,
     sortBy: state.sortBy,

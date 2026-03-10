@@ -408,6 +408,38 @@ describe('InfoPanel', () => {
     });
   });
 
+  describe('section hierarchy and localization', () => {
+    it('renders canonical section order for target information', () => {
+      render(<InfoPanel {...defaultProps} selectedObject={mockSelectedObject} />);
+
+      const identity = screen.getByTestId('info-panel-section-identity');
+      const live = screen.getByTestId('info-panel-section-live-status');
+      const planning = screen.getByTestId('info-panel-section-planning-metrics');
+      const advanced = screen.getByTestId('info-panel-section-advanced-metadata');
+
+      expect(identity.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(live.compareDocumentPosition(planning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(planning.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('uses localized keys for advanced metadata labels', () => {
+      render(<InfoPanel {...defaultProps} selectedObject={mockSelectedObject} />);
+      expect(screen.getByText('objectDetail.frameTimeScale')).toBeInTheDocument();
+      expect(screen.getByText('objectDetail.qualityEop')).toBeInTheDocument();
+      expect(screen.getByText('objectDetail.timestamp')).toBeInTheDocument();
+    });
+  });
+
+  describe('compact-priority behavior', () => {
+    it('de-prioritizes advanced metadata while keeping critical actions visible', () => {
+      render(<InfoPanel {...defaultProps} selectedObject={mockSelectedObject} />);
+
+      const advanced = screen.getByTestId('info-panel-section-advanced-metadata');
+      expect(advanced.className).toContain('hidden');
+      expect(screen.getByText('common.add')).toBeInTheDocument();
+    });
+  });
+
   describe('timer and event handlers', () => {
     beforeEach(() => {
       jest.useFakeTimers();

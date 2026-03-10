@@ -247,4 +247,56 @@ describe('optimizeScheduleV2', () => {
     expect(plan.conflicts.some((conflict) => conflict.type === 'weather')).toBe(true);
     expect(plan.warnings.some((warning) => warning.key === 'planRec.weatherNotIdeal')).toBe(true);
   });
+
+  it('returns stable reason code for invalid session window values', () => {
+    const targets = [makeTarget({ id: 't1', name: 'M31', ra: 10.68, dec: 70 })];
+    const twilight = makeTwilight(PLAN_DATE);
+
+    const plan = optimizeScheduleV2(
+      targets,
+      LAT,
+      LON,
+      twilight,
+      'balanced',
+      {
+        ...baseConstraints,
+        sessionWindow: {
+          startTime: '99:00',
+          endTime: '02:00',
+        },
+      },
+      PLAN_DATE,
+      new Set(),
+      [],
+    );
+
+    expect(plan.conflicts[0]?.type).toBe('session-window');
+    expect(plan.conflicts[0]?.reasonCode).toBe('invalid-session-window');
+  });
+
+  it('returns stable reason code when session window has no overlap with night', () => {
+    const targets = [makeTarget({ id: 't1', name: 'M31', ra: 10.68, dec: 70 })];
+    const twilight = makeTwilight(PLAN_DATE);
+
+    const plan = optimizeScheduleV2(
+      targets,
+      LAT,
+      LON,
+      twilight,
+      'balanced',
+      {
+        ...baseConstraints,
+        sessionWindow: {
+          startTime: '10:00',
+          endTime: '12:00',
+        },
+      },
+      PLAN_DATE,
+      new Set(),
+      [],
+    );
+
+    expect(plan.conflicts[0]?.type).toBe('session-window');
+    expect(plan.conflicts[0]?.reasonCode).toBe('session-window-no-overlap');
+  });
 });

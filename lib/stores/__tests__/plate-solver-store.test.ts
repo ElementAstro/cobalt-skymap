@@ -372,6 +372,7 @@ describe('usePlateSolverStore', () => {
         message: 'Processing...',
         sub_id: 123,
         job_id: 456,
+        operation_id: 'op-1',
       };
 
       act(() => {
@@ -391,6 +392,7 @@ describe('usePlateSolverStore', () => {
           message: 'test',
           sub_id: null,
           job_id: null,
+          operation_id: null,
         });
       });
 
@@ -541,6 +543,7 @@ describe('usePlateSolverStore', () => {
             message: 'Done',
             sub_id: 1,
             job_id: 2,
+            operation_id: 'op-2',
           },
         });
       });

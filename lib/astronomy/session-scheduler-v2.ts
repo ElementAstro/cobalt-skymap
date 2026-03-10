@@ -159,6 +159,20 @@ function buildScheduledTarget(
   };
 }
 
+function makeConflict(
+  type: SessionConflict['type'],
+  targetId: string,
+  reasonCode: string,
+  message: string,
+): SessionConflict {
+  return {
+    type,
+    targetId,
+    reasonCode,
+    message,
+  };
+}
+
 function detectConflicts(
   targets: ScheduledTargetWithLock[],
   constraints: SessionConstraintSet,
@@ -172,27 +186,30 @@ function detectConflicts(
     const previous = targets[index - 1];
 
     if (previous && current.startTime.getTime() < previous.endTime.getTime()) {
-      conflicts.push({
-        type: 'overlap',
-        targetId: current.target.id,
-        message: `${current.target.name} overlaps with ${previous.target.name}`,
-      });
+      conflicts.push(makeConflict(
+        'overlap',
+        current.target.id,
+        'overlap-with-previous',
+        `${current.target.name} overlaps with ${previous.target.name}`,
+      ));
     }
 
     if (current.maxAltitude < constraints.minAltitude) {
-      conflicts.push({
-        type: 'altitude',
-        targetId: current.target.id,
-        message: `${current.target.name} max altitude ${current.maxAltitude.toFixed(1)}° is below ${constraints.minAltitude}°`,
-      });
+      conflicts.push(makeConflict(
+        'altitude',
+        current.target.id,
+        'below-min-altitude',
+        `${current.target.name} max altitude ${current.maxAltitude.toFixed(1)}° is below ${constraints.minAltitude}°`,
+      ));
     }
 
     if (minMoonDistance > 0 && current.moonDistance < minMoonDistance) {
-      conflicts.push({
-        type: 'moon-distance',
-        targetId: current.target.id,
-        message: `${current.target.name} is ${current.moonDistance.toFixed(1)}° from moon (min ${minMoonDistance}°)`,
-      });
+      conflicts.push(makeConflict(
+        'moon-distance',
+        current.target.id,
+        'below-min-moon-distance',
+        `${current.target.name} is ${current.moonDistance.toFixed(1)}° from moon (min ${minMoonDistance}°)`,
+      ));
     }
   }
 
@@ -203,33 +220,36 @@ function detectConflicts(
       weatherSnapshot.cloudCover !== undefined &&
       weatherSnapshot.cloudCover > weatherLimits.maxCloudCover
     ) {
-      conflicts.push({
-        type: 'weather',
-        targetId: 'global',
-        message: `Cloud cover ${weatherSnapshot.cloudCover}% exceeds ${weatherLimits.maxCloudCover}%`,
-      });
+      conflicts.push(makeConflict(
+        'weather',
+        'global',
+        'cloud-cover-limit-exceeded',
+        `Cloud cover ${weatherSnapshot.cloudCover}% exceeds ${weatherLimits.maxCloudCover}%`,
+      ));
     }
     if (
       weatherLimits.maxHumidity !== undefined &&
       weatherSnapshot.humidity !== undefined &&
       weatherSnapshot.humidity > weatherLimits.maxHumidity
     ) {
-      conflicts.push({
-        type: 'weather',
-        targetId: 'global',
-        message: `Humidity ${weatherSnapshot.humidity}% exceeds ${weatherLimits.maxHumidity}%`,
-      });
+      conflicts.push(makeConflict(
+        'weather',
+        'global',
+        'humidity-limit-exceeded',
+        `Humidity ${weatherSnapshot.humidity}% exceeds ${weatherLimits.maxHumidity}%`,
+      ));
     }
     if (
       weatherLimits.maxWindSpeed !== undefined &&
       weatherSnapshot.windSpeed !== undefined &&
       weatherSnapshot.windSpeed > weatherLimits.maxWindSpeed
     ) {
-      conflicts.push({
-        type: 'weather',
-        targetId: 'global',
-        message: `Wind ${weatherSnapshot.windSpeed} km/h exceeds ${weatherLimits.maxWindSpeed} km/h`,
-      });
+      conflicts.push(makeConflict(
+        'weather',
+        'global',
+        'wind-limit-exceeded',
+        `Wind ${weatherSnapshot.windSpeed} km/h exceeds ${weatherLimits.maxWindSpeed} km/h`,
+      ));
     }
   }
 
@@ -280,11 +300,12 @@ export function optimizeScheduleV2(
     const resolvedStart = resolveNightTime(planDate, twilight, sessionWindow.startTime);
     const resolvedEnd = resolveNightTime(planDate, twilight, sessionWindow.endTime);
     if (!resolvedStart || !resolvedEnd) {
-      accumulatedConflicts.push({
-        type: 'session-window',
-        targetId: 'global',
-        message: 'Invalid session window time values',
-      });
+      accumulatedConflicts.push(makeConflict(
+        'session-window',
+        'global',
+        'invalid-session-window',
+        'Invalid session window time values',
+      ));
       return {
         targets: [],
         totalImagingTime: 0,
@@ -309,11 +330,12 @@ export function optimizeScheduleV2(
 
     const intersection = intersectInterval(normalizedNight, resolvedWindow);
     if (!intersection) {
-      accumulatedConflicts.push({
-        type: 'session-window',
-        targetId: 'global',
-        message: 'Session window has no overlap with astronomical night',
-      });
+      accumulatedConflicts.push(makeConflict(
+        'session-window',
+        'global',
+        'session-window-no-overlap',
+        'Session window has no overlap with astronomical night',
+      ));
       return {
         targets: [],
         totalImagingTime: 0,
@@ -350,11 +372,12 @@ export function optimizeScheduleV2(
   for (const edit of manualEdits.filter((item) => Boolean(item.locked))) {
     const target = targetById.get(edit.targetId);
     if (!target || excludedIds.has(edit.targetId)) {
-      accumulatedConflicts.push({
-        type: 'manual-time',
-        targetId: edit.targetId,
-        message: `Manual edit refers to unknown or excluded target (${edit.targetId})`,
-      });
+      accumulatedConflicts.push(makeConflict(
+        'manual-time',
+        edit.targetId,
+        'manual-edit-unknown-target',
+        `Manual edit refers to unknown or excluded target (${edit.targetId})`,
+      ));
       continue;
     }
 
@@ -374,11 +397,12 @@ export function optimizeScheduleV2(
     }
 
     if (!startTime || !endTime) {
-      accumulatedConflicts.push({
-        type: 'manual-time',
-        targetId: target.id,
-        message: `Invalid manual time for ${target.name}`,
-      });
+      accumulatedConflicts.push(makeConflict(
+        'manual-time',
+        target.id,
+        'manual-edit-invalid-time',
+        `Invalid manual time for ${target.name}`,
+      ));
       continue;
     }
 
@@ -388,11 +412,12 @@ export function optimizeScheduleV2(
     }
 
     if (endTime <= startTime) {
-      accumulatedConflicts.push({
-        type: 'manual-time',
-        targetId: target.id,
-        message: `Manual time window is not valid for ${target.name}`,
-      });
+      accumulatedConflicts.push(makeConflict(
+        'manual-time',
+        target.id,
+        'manual-edit-window-invalid',
+        `Manual time window is not valid for ${target.name}`,
+      ));
       continue;
     }
 
@@ -433,11 +458,12 @@ export function optimizeScheduleV2(
 
     const intersectionWithHorizon = intersectInterval({ start: startTime, end: endTime }, horizon);
     if (!intersectionWithHorizon) {
-      accumulatedConflicts.push({
-        type: 'session-window',
-        targetId: target.id,
-        message: `${target.name} locked time is outside session window`,
-      });
+      accumulatedConflicts.push(makeConflict(
+        'session-window',
+        target.id,
+        'locked-target-outside-session-window',
+        `${target.name} locked time is outside session window`,
+      ));
     } else {
       lockedIntervalsForSubtraction.push(intersectionWithHorizon);
     }
@@ -456,11 +482,12 @@ export function optimizeScheduleV2(
       );
 
       if (constraints.safetyLimits?.enforceMountSafety && !safety.isSafe) {
-        accumulatedConflicts.push({
-          type: 'mount-safety',
-          targetId: target.id,
-          message: `${target.name} violates mount safety limits`,
-        });
+        accumulatedConflicts.push(makeConflict(
+          'mount-safety',
+          target.id,
+          'mount-safety-limit-violation',
+          `${target.name} violates mount safety limits`,
+        ));
       }
       if (
         constraints.safetyLimits?.avoidMeridianFlipWindow &&
@@ -469,11 +496,12 @@ export function optimizeScheduleV2(
         safety.meridianFlipTime.getTime() > startTime.getTime() &&
         safety.meridianFlipTime.getTime() < endTime.getTime()
       ) {
-        accumulatedConflicts.push({
-          type: 'mount-safety',
-          targetId: target.id,
-          message: `${target.name} requires meridian flip during locked window`,
-        });
+        accumulatedConflicts.push(makeConflict(
+          'mount-safety',
+          target.id,
+          'locked-target-meridian-flip-window',
+          `${target.name} requires meridian flip during locked window`,
+        ));
       }
     }
   }
@@ -687,11 +715,12 @@ export function optimizeScheduleV2(
     scheduledAuto.push(scheduled);
 
     if (best.plannedMinutes < info.desiredMinutes) {
-      accumulatedConflicts.push({
-        type: 'insufficient-duration',
-        targetId: info.target.id,
-        message: `${info.target.name} planned ${Math.round(best.plannedMinutes)}m < desired ${Math.round(info.desiredMinutes)}m`,
-      });
+      accumulatedConflicts.push(makeConflict(
+        'insufficient-duration',
+        info.target.id,
+        'planned-duration-below-desired',
+        `${info.target.name} planned ${Math.round(best.plannedMinutes)}m < desired ${Math.round(info.desiredMinutes)}m`,
+      ));
     }
 
     // Subtract scheduled interval from free intervals

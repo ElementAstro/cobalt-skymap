@@ -131,6 +131,8 @@ const mockUseOnboardingBridgeStore = jest.fn((selector) => {
     openSettingsDrawerRequestId: 0,
     closeTransientPanelsRequestId: 0,
     settingsDrawerTab: null,
+    settingsDrawerOpen: false,
+    setSettingsDrawerOpen: jest.fn(),
   };
   return selector ? selector(state) : state;
 });

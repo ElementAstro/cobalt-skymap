@@ -1,0 +1,91 @@
+/**
+ * @jest-environment jsdom
+ */
+jest.mock('zustand/middleware', () => ({
+  persist: (config: unknown) => config,
+}));
+
+jest.mock('@/lib/storage', () => ({
+  getZustandStorage: () => ({
+    getItem: jest.fn(),
+    setItem: jest.fn(),
+    removeItem: jest.fn(),
+  }),
+}));
+
+import { useMountStore } from '@/lib/stores/mount-store';
+import { useSettingsStore } from '@/lib/stores/settings-store';
+import { createDefaultSettingsDraft } from '../settings-draft';
+import { applySettingsTransaction } from '../apply-settings-transaction';
+
+describe('apply-settings-transaction', () => {
+  beforeEach(() => {
+    useSettingsStore.setState({
+      connection: { ip: 'localhost', port: '1888' },
+      backendProtocol: 'http',
+      preferences: {
+        ...useSettingsStore.getState().preferences,
+        locale: 'en',
+      },
+    });
+
+    useMountStore.setState({
+      profileInfo: {
+        AstrometrySettings: {
+          Latitude: 0,
+          Longitude: 0,
+          Elevation: 0,
+        },
+      },
+    });
+  });
+
+  it('applies settings in deterministic order', () => {
+    const draft = createDefaultSettingsDraft();
+    draft.connection = { ip: '127.0.0.1', port: '9999' };
+    draft.backendProtocol = 'https';
+    draft.preferences.locale = 'zh';
+    draft.location = { latitude: 20, longitude: 30, elevation: 50 };
+
+    const result = applySettingsTransaction(draft);
+
+    expect(result.success).toBe(true);
+    expect(result.appliedDomains).toEqual([
+      'connection',
+      'preferences',
+      'performance',
+      'accessibility',
+      'notifications',
+      'search',
+      'location',
+    ]);
+    expect(useSettingsStore.getState().connection).toEqual({ ip: '127.0.0.1', port: '9999' });
+    expect(useSettingsStore.getState().backendProtocol).toBe('https');
+    expect(useSettingsStore.getState().preferences.locale).toBe('zh');
+    expect(useMountStore.getState().profileInfo.AstrometrySettings.Latitude).toBe(20);
+  });
+
+  it('rolls back applied domains on failure', () => {
+    const draft = createDefaultSettingsDraft();
+    draft.connection = { ip: '10.0.0.5', port: '1889' };
+    draft.preferences.locale = 'zh';
+
+    const result = applySettingsTransaction(draft, {
+      domainOrder: ['connection', 'preferences'],
+      domainWriters: {
+        preferences: () => {
+          throw new Error('forced failure');
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.failedDomains[0]).toEqual({
+      domain: 'preferences',
+      error: 'forced failure',
+    });
+    expect(result.rolledBackDomains).toContain('connection');
+    expect(useSettingsStore.getState().connection).toEqual({ ip: 'localhost', port: '1888' });
+  });
+});
+

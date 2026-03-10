@@ -50,6 +50,7 @@ export const StellariumCanvas = forwardRef<StellariumCanvasRef, StellariumCanvas
       click: new Set(),
       rectSelection: new Set(),
     });
+    const startLoadingRef = useRef<() => Promise<void>>(async () => {});
 
     // ============================================================================
     // Store Actions
@@ -78,6 +79,10 @@ export const StellariumCanvas = forwardRef<StellariumCanvasRef, StellariumCanvas
       onSelectionChange,
       onFovChange,
     });
+
+    useEffect(() => {
+      startLoadingRef.current = startLoading;
+    }, [startLoading]);
 
     // Zoom functionality
     const {
@@ -206,13 +211,23 @@ export const StellariumCanvas = forwardRef<StellariumCanvasRef, StellariumCanvas
     // ============================================================================
     useEffect(() => {
       const engineEventListeners = engineEventListenersRef.current;
+      let isDisposed = false;
+      let hasStarted = false;
+
+      const kickOffLoading = () => {
+        if (isDisposed || hasStarted) return;
+        hasStarted = true;
+        void startLoadingRef.current();
+      };
+
       setActiveEngine('stellarium');
-      const startFrame = window.requestAnimationFrame(() => {
-        void startLoading();
-      });
+      // Start immediately; keep a short timeout fallback in case runtime scheduling is delayed.
+      kickOffLoading();
+      const fallbackTimer = window.setTimeout(kickOffLoading, 120);
 
       return () => {
-        window.cancelAnimationFrame(startFrame);
+        isDisposed = true;
+        window.clearTimeout(fallbackTimer);
         // Cleanup on unmount
         stelRef.current = null;
         setStel(null);
@@ -223,7 +238,7 @@ export const StellariumCanvas = forwardRef<StellariumCanvasRef, StellariumCanvas
         const { setHelpers } = useStellariumStore.getState();
         setHelpers({ getCurrentViewDirection: null, setViewDirection: null });
       };
-    }, [startLoading, setStel, setActiveEngine]);
+    }, [setStel, setActiveEngine]);
 
     // ============================================================================
     // Effect: ResizeObserver for dynamic canvas resize
@@ -263,10 +278,10 @@ export const StellariumCanvas = forwardRef<StellariumCanvasRef, StellariumCanvas
     // Render
     // ============================================================================
     return (
-      <div ref={containerRef} className="relative w-full h-full">
+      <div ref={containerRef} className="relative w-full h-full touch-none">
         <canvas
           ref={canvasRef}
-          className="w-full h-full block"
+          className="w-full h-full block touch-none"
         />
         
         {/* Loading Overlay */}

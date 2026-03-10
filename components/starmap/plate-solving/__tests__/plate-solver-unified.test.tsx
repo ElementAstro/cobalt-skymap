@@ -97,6 +97,7 @@ jest.mock('@/lib/tauri/plate-solver-api', () => ({
   solveImageLocal: jest.fn(),
   solveOnline: jest.fn().mockResolvedValue({
     success: true,
+    operation_id: 'op-1',
     ra: 180.1,
     dec: 45.05,
     orientation: 12.5,
@@ -110,8 +111,10 @@ jest.mock('@/lib/tauri/plate-solver-api', () => ({
     job_id: 123,
     wcs: null,
     solve_time_ms: 1200,
+    error_code: null,
     error_message: null,
   }),
+  cancelOnlineSolve: jest.fn().mockResolvedValue(true),
   cancelPlateSolve: jest.fn().mockResolvedValue(undefined),
   convertToLegacyResult: jest.fn((result) => ({
     success: result.success,
@@ -253,6 +256,50 @@ jest.mock('@/lib/plate-solving', () => ({
   AstrometryApiClient: jest.fn().mockImplementation(() => ({
     solve: jest.fn(),
     cancel: jest.fn(),
+  })),
+  createInitialOnlineSolveSessionState: jest.fn((runtime: 'tauri' | 'web' = 'web') => ({
+    stage: 'idle',
+    runtime,
+    progress: 0,
+    attempt: 0,
+    maxAttempts: 0,
+    message: '',
+    errorCode: null,
+    errorMessage: null,
+    cancelled: false,
+    subId: null,
+    jobId: null,
+    operationId: null,
+  })),
+  classifyOnlineSolveError: jest.fn((input: unknown) => ({
+    code: 'unknown',
+    message: input instanceof Error ? input.message : String(input ?? 'unknown'),
+  })),
+  isRetryableOnlineError: jest.fn((code: string) => code === 'timeout' || code === 'network' || code === 'service_failed'),
+  mapTauriProgressToOnlineSession: jest.fn((payload: { progress: number; message?: string; sub_id?: number | null; job_id?: number | null; operation_id?: string | null }, current: Record<string, unknown>) => ({
+    ...current,
+    runtime: 'tauri',
+    stage: 'uploading',
+    progress: payload.progress ?? 0,
+    message: payload.message ?? '',
+    subId: payload.sub_id ?? null,
+    jobId: payload.job_id ?? null,
+    operationId: payload.operation_id ?? null,
+    errorCode: null,
+    errorMessage: null,
+    cancelled: false,
+  })),
+  mapWebProgressToOnlineSession: jest.fn((payload: { stage: string; progress?: number; subid?: number; jobId?: number; error?: string }, current: Record<string, unknown>) => ({
+    ...current,
+    runtime: 'web',
+    stage: payload.stage === 'failed' ? 'failed' : 'uploading',
+    progress: payload.progress ?? 0,
+    subId: payload.subid ?? null,
+    jobId: payload.jobId ?? null,
+    message: payload.error ?? '',
+    errorCode: payload.stage === 'failed' ? 'unknown' : null,
+    errorMessage: payload.stage === 'failed' ? (payload.error ?? 'failed') : null,
+    cancelled: false,
   })),
   createErrorResult: jest.fn((solverName: string, errorMessage: string) => ({
     success: false,
@@ -962,6 +1009,7 @@ describe('PlateSolverUnified', () => {
       const mockSolveOnline = jest.requireMock('@/lib/tauri/plate-solver-api').solveOnline;
       mockSolveOnline.mockResolvedValue({
         success: false,
+        operation_id: 'op-fail',
         ra: null,
         dec: null,
         orientation: null,
@@ -974,6 +1022,7 @@ describe('PlateSolverUnified', () => {
         job_id: null,
         wcs: null,
         solve_time_ms: 5000,
+        error_code: 'service_failed',
         error_message: 'No solution found',
       });
 

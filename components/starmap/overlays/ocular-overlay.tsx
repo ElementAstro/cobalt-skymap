@@ -41,7 +41,11 @@ export function OcularOverlay({
   return (
     <div className="absolute inset-0 pointer-events-none z-[13] flex items-center justify-center" data-testid="ocular-overlay">
       {metrics.exceedsCurrentFov && (
-        <div data-testid="ocular-overlay-warning" className="absolute top-3 left-1/2 -translate-x-1/2 rounded bg-black/70 px-2 py-1 text-[10px] text-yellow-300 border border-yellow-600/50">
+        <div
+          data-testid="ocular-overlay-warning"
+          className="absolute left-1/2 -translate-x-1/2 rounded bg-black/70 px-2 py-1 text-[10px] text-yellow-300 border border-yellow-600/50"
+          style={{ top: 'calc(0.75rem + var(--safe-area-top))' }}
+        >
           {t('overlayExceedsFov')}
         </div>
       )}

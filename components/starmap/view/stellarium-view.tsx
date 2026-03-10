@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useTranslations } from 'next-intl';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 import { SkyMapCanvas } from '../canvas/sky-map-canvas';
@@ -23,10 +24,14 @@ import { BottomStatusBar } from './bottom-status-bar';
 import { useStellariumViewState } from './use-stellarium-view-state';
 import { UpdateBanner } from '../management/updater/update-banner';
 import { UpdateDialog } from '../management/updater/update-dialog';
+import { SessionPlanner } from '../planning/session-planner';
 import { isTauri } from '@/lib/tauri/app-control-api';
 import { useSettingsStore } from '@/lib/stores/settings-store';
+import { useOnboardingBridgeStore, usePlanningUiStore, useStarmapMobileUiStore } from '@/lib/stores';
 import { ARCameraBackground } from '../overlays/ar-camera-background';
 import { ARCompassOverlay } from '../overlays/ar-compass-overlay';
+import { useMobileShell } from './use-mobile-shell';
+import { useARSessionStatus } from '@/lib/hooks/use-ar-session-status';
 import { cn } from '@/lib/utils';
 
 interface StellariumViewProps {
@@ -34,6 +39,7 @@ interface StellariumViewProps {
 }
 
 export function StellariumView({ showSplash = false }: StellariumViewProps) {
+  const t = useTranslations();
   const {
     // UI state
     isSearchOpen,
@@ -104,27 +110,228 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
   } = useStellariumViewState();
 
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const { isMobileShell, viewportHeight } = useMobileShell();
+  const activeMobilePanel = useStarmapMobileUiStore((state) => state.activePanel);
+  const setMobileShell = useStarmapMobileUiStore((state) => state.setMobileShell);
+  const openMobilePanel = useStarmapMobileUiStore((state) => state.openPanel);
+  const closeMobilePanelIfActive = useStarmapMobileUiStore((state) => state.closePanelIfActive);
+  const resetMobilePanelFlow = useStarmapMobileUiStore((state) => state.resetPanelFlow);
+  const sessionPlannerOpen = usePlanningUiStore((state) => state.sessionPlannerOpen);
+  const openSessionPlanner = usePlanningUiStore((state) => state.openSessionPlanner);
+  const setSessionPlannerOpen = usePlanningUiStore((state) => state.setSessionPlannerOpen);
+  const openSettingsDrawer = useOnboardingBridgeStore((state) => state.openSettingsDrawer);
+  const settingsDrawerOpen = useOnboardingBridgeStore((state) => state.settingsDrawerOpen);
+  const closeTransientPanels = useOnboardingBridgeStore((state) => state.closeTransientPanels);
   const arMode = useSettingsStore((s) => s.stellarium.arMode);
   const arOpacity = useSettingsStore((s) => s.stellarium.arOpacity);
   const arShowCompass = useSettingsStore((s) => s.stellarium.arShowCompass);
+  const arSession = useARSessionStatus({ enabled: arMode });
+  const useCameraBlend = arMode && arSession.cameraLayerEnabled;
+  const wasSessionPlannerOpenRef = useRef(sessionPlannerOpen);
+  const wasSettingsDrawerOpenRef = useRef(settingsDrawerOpen);
+
+  useEffect(() => {
+    setMobileShell(isMobileShell);
+    if (!isMobileShell) {
+      resetMobilePanelFlow();
+      closeTransientPanels();
+    }
+  }, [closeTransientPanels, isMobileShell, resetMobilePanelFlow, setMobileShell]);
+
+  useEffect(() => {
+    if (!isMobileShell || !activeMobilePanel) return;
+    if (activeMobilePanel === 'details' && !selectedObject) {
+      closeMobilePanelIfActive('details');
+    }
+  }, [activeMobilePanel, closeMobilePanelIfActive, isMobileShell, selectedObject]);
+
+  useEffect(() => {
+    if (!isMobileShell) {
+      wasSessionPlannerOpenRef.current = sessionPlannerOpen;
+      return;
+    }
+
+    const wasOpen = wasSessionPlannerOpenRef.current;
+    if (activeMobilePanel === 'planning' && wasOpen && !sessionPlannerOpen) {
+      closeMobilePanelIfActive('planning');
+    }
+    wasSessionPlannerOpenRef.current = sessionPlannerOpen;
+  }, [activeMobilePanel, closeMobilePanelIfActive, isMobileShell, sessionPlannerOpen]);
+
+  useEffect(() => {
+    if (!isMobileShell) return;
+
+    if (activeMobilePanel === 'search') {
+      if (!isSearchOpen) {
+        setIsSearchOpen(true);
+      }
+    } else if (isSearchOpen) {
+      setIsSearchOpen(false);
+    }
+
+    if (activeMobilePanel === 'details') {
+      if (selectedObject && !detailDrawerOpen) {
+        setDetailDrawerOpen(true);
+      }
+    } else if (detailDrawerOpen) {
+      setDetailDrawerOpen(false);
+    }
+
+    if (activeMobilePanel === 'planning') {
+      if (!sessionPlannerOpen) {
+        setSessionPlannerOpen(true);
+      }
+    } else if (sessionPlannerOpen) {
+      setSessionPlannerOpen(false);
+    }
+
+    if (activeMobilePanel === 'settings') {
+      if (!settingsDrawerOpen) {
+        openSettingsDrawer();
+      }
+      return;
+    }
+
+    if (settingsDrawerOpen) {
+      closeTransientPanels();
+    }
+  }, [
+    activeMobilePanel,
+    closeTransientPanels,
+    detailDrawerOpen,
+    isMobileShell,
+    isSearchOpen,
+    openSettingsDrawer,
+    selectedObject,
+    sessionPlannerOpen,
+    setDetailDrawerOpen,
+    setIsSearchOpen,
+    setSessionPlannerOpen,
+    settingsDrawerOpen,
+  ]);
+
+  useEffect(() => {
+    if (!isMobileShell) return;
+    if (isSearchOpen && activeMobilePanel !== 'search') {
+      openMobilePanel('search');
+    }
+    if (detailDrawerOpen && activeMobilePanel !== 'details') {
+      openMobilePanel('details');
+    }
+    if (sessionPlannerOpen && activeMobilePanel !== 'planning') {
+      openMobilePanel('planning');
+    }
+    if (settingsDrawerOpen && activeMobilePanel !== 'settings') {
+      openMobilePanel('settings');
+    }
+  }, [
+    activeMobilePanel,
+    detailDrawerOpen,
+    isMobileShell,
+    isSearchOpen,
+    openMobilePanel,
+    sessionPlannerOpen,
+    settingsDrawerOpen,
+  ]);
+
+  useEffect(() => {
+    if (!isMobileShell) {
+      wasSettingsDrawerOpenRef.current = settingsDrawerOpen;
+      return;
+    }
+
+    const wasOpen = wasSettingsDrawerOpenRef.current;
+    if (activeMobilePanel === 'settings' && wasOpen && !settingsDrawerOpen) {
+      closeMobilePanelIfActive('settings');
+    }
+    wasSettingsDrawerOpenRef.current = settingsDrawerOpen;
+  }, [activeMobilePanel, closeMobilePanelIfActive, isMobileShell, settingsDrawerOpen]);
+
+  const handleSearchToggle = useCallback(() => {
+    if (!isMobileShell) {
+      toggleSearch();
+      return;
+    }
+
+    if (activeMobilePanel === 'search') {
+      closeMobilePanelIfActive('search');
+      return;
+    }
+
+    openMobilePanel('search');
+  }, [
+    activeMobilePanel,
+    closeMobilePanelIfActive,
+    isMobileShell,
+    openMobilePanel,
+    toggleSearch,
+  ]);
+
+  const handleOpenDetails = useCallback(() => {
+    if (!selectedObject) return;
+    openMobilePanel('details');
+  }, [openMobilePanel, selectedObject]);
+
+  const handleOpenSessionPlanner = useCallback(() => {
+    openMobilePanel('planning');
+    openSessionPlanner();
+  }, [openMobilePanel, openSessionPlanner]);
+
+  const handleOpenSettings = useCallback(() => {
+    openMobilePanel('settings');
+    openSettingsDrawer();
+  }, [openMobilePanel, openSettingsDrawer]);
+
+  const mobileShellContainerStyle: CSSProperties | undefined = isMobileShell
+    ? ({
+        ['--mobile-shell-height' as string]: `${viewportHeight}px`,
+        height: 'var(--mobile-shell-height)',
+        minHeight: 'var(--mobile-shell-height)',
+        maxHeight: 'var(--mobile-shell-height)',
+      } as CSSProperties)
+    : undefined;
 
   return (
     <TooltipProvider>
-      <div ref={containerRef} className={cn("relative w-full h-full overflow-hidden", arMode ? "bg-transparent" : "bg-black")} data-tour-id="canvas">
+      <div
+        ref={containerRef}
+        className={cn('relative w-full h-full overflow-hidden', arMode ? 'bg-transparent' : 'bg-black')}
+        data-tour-id="canvas"
+        style={mobileShellContainerStyle}
+      >
         {/* Unified Onboarding (Welcome + Setup Wizard + Tour) */}
         <UnifiedOnboarding />
         <StartupModalCoordinator showSplash={showSplash} />
 
         {/* Keyboard Shortcuts Manager */}
         <KeyboardShortcutsManager
-          onToggleSearch={toggleSearch}
+          onToggleSearch={handleSearchToggle}
           onToggleSessionPanel={() => setShowSessionPanel(prev => !prev)}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onResetView={handleResetView}
           onClosePanel={() => {
-            if (isSearchOpen) setIsSearchOpen(false);
-            else if (selectedObject) setSelectedObject(null);
+            if (isMobileShell && activeMobilePanel === 'settings') {
+              closeTransientPanels();
+              closeMobilePanelIfActive('settings');
+              return;
+            }
+            if (isMobileShell && activeMobilePanel === 'planning') {
+              setSessionPlannerOpen(false);
+              closeMobilePanelIfActive('planning');
+              return;
+            }
+            if (isSearchOpen || activeMobilePanel === 'search') {
+              setIsSearchOpen(false);
+              closeMobilePanelIfActive('search');
+              return;
+            }
+            if (detailDrawerOpen || activeMobilePanel === 'details') {
+              setDetailDrawerOpen(false);
+              closeMobilePanelIfActive('details');
+              return;
+            }
+            if (selectedObject) setSelectedObject(null);
           }}
           enabled={!!stel || skyEngine === 'aladin'}
         />
@@ -133,7 +340,10 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
         {arMode && <ARCameraBackground enabled={arMode} />}
 
         {/* Canvas — switches between Stellarium and Aladin based on skyEngine setting */}
-        <div className="absolute inset-0" style={arMode ? { mixBlendMode: 'screen' as const, opacity: arOpacity } : undefined}>
+        <div
+          className="absolute inset-0"
+          style={useCameraBlend ? { mixBlendMode: 'screen' as const, opacity: arOpacity } : undefined}
+        >
           <SkyMapCanvas
             ref={canvasRef}
             onSelectionChange={handleSelectionChange}
@@ -160,7 +370,7 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
           onZoomOut={handleZoomOut}
           onSetFov={handleSetFov}
           onToggleStellariumSetting={toggleStellariumSetting}
-          onToggleSearch={toggleSearch}
+          onToggleSearch={handleSearchToggle}
           onResetView={handleResetView}
         />
 
@@ -171,8 +381,31 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
           onNavigate={handleGoToCoordinates}
         />
 
+        {/* Session Planner Dialog (mounted once; triggered via store) */}
+        <SessionPlanner showTrigger={false} />
+
+        {arMode && arSession.status !== 'ready' && (
+          <div
+            className="absolute left-1/2 z-30 -translate-x-1/2 rounded-md bg-black/50 px-2 py-1 text-[10px] text-white/90 backdrop-blur-sm"
+            style={{ top: 'calc(0.5rem + var(--safe-area-top))' }}
+          >
+            {arSession.status === 'preflight'
+              ? t('settings.arStatusPreflight')
+              : arSession.status === 'degraded-camera-only'
+                ? t('settings.arStatusDegradedCameraOnly')
+                : arSession.status === 'degraded-sensor-only'
+                  ? t('settings.arStatusDegradedSensorOnly')
+                  : t('settings.arStatusBlocked')}
+          </div>
+        )}
+
         {/* AR Compass Overlay */}
-        {arMode && arShowCompass && <ARCompassOverlay enabled />}
+        {arMode && (
+          <ARCompassOverlay
+            enabled={arShowCompass}
+            sessionStatus={arSession.status}
+          />
+        )}
 
         {/* Overlays */}
         <OverlaysContainer
@@ -191,7 +424,7 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
           showSessionPanel={showSessionPanel}
           viewCenterRaDec={viewCenterRaDec}
           currentFov={currentFov}
-          onToggleSearch={toggleSearch}
+          onToggleSearch={handleSearchToggle}
           onToggleSessionPanel={() => setShowSessionPanel(prev => !prev)}
           onResetView={handleResetView}
           onCloseStarmapClick={handleCloseStarmapClick}
@@ -204,8 +437,19 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
         <SearchPanel
           ref={searchRef}
           isOpen={isSearchOpen}
-          onClose={() => setIsSearchOpen(false)}
-          onSelect={() => setIsSearchOpen(false)}
+          isMobileShell={isMobileShell}
+          onClose={() => {
+            setIsSearchOpen(false);
+            if (isMobileShell) {
+              closeMobilePanelIfActive('search');
+            }
+          }}
+          onSelect={() => {
+            setIsSearchOpen(false);
+            if (isMobileShell) {
+              closeMobilePanelIfActive('search');
+            }
+          }}
         />
 
         {/* Right Side Controls - Desktop */}
@@ -222,24 +466,36 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
         />
 
         {/* Mobile Layout */}
-        <MobileLayout
-          currentFov={currentFov}
-          selectedObject={selectedObject}
-          contextMenuCoords={contextMenuCoords}
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
-          onFovSliderChange={handleSetFov}
-          onLocationChange={handleLocationChange}
-          onGoToCoordinates={handleGoToCoordinates}
-        />
+        {isMobileShell && (
+          <MobileLayout
+            currentFov={currentFov}
+            selectedObject={selectedObject}
+            contextMenuCoords={contextMenuCoords}
+            activeMobilePanel={activeMobilePanel}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onFovSliderChange={handleSetFov}
+            onLocationChange={handleLocationChange}
+            onGoToCoordinates={handleGoToCoordinates}
+            onOpenSearch={handleSearchToggle}
+            onOpenDetails={handleOpenDetails}
+            onOpenSessionPlanner={handleOpenSessionPlanner}
+            onOpenSettings={handleOpenSettings}
+          />
+        )}
 
         {/* Info Panel */}
-        {selectedObject && !isSearchOpen && (
+        {selectedObject && !isSearchOpen && !isMobileShell && (
           <InfoPanel
             selectedObject={selectedObject}
             onClose={() => setSelectedObject(null)}
             onSetFramingCoordinates={handleSetFramingCoordinates}
-            onViewDetails={() => setDetailDrawerOpen(true)}
+            onViewDetails={() => {
+              setDetailDrawerOpen(true);
+              if (isMobileShell) {
+                openMobilePanel('details');
+              }
+            }}
             clickPosition={clickPosition}
             containerBounds={containerBounds}
             className="pointer-events-auto info-panel-enter"
@@ -249,7 +505,14 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
         {/* Object Detail Drawer */}
         <ObjectDetailDrawer
           open={detailDrawerOpen}
-          onOpenChange={setDetailDrawerOpen}
+          onOpenChange={(open) => {
+            setDetailDrawerOpen(open);
+            if (!open) {
+              if (isMobileShell) {
+                closeMobilePanelIfActive('details');
+              }
+            }
+          }}
           selectedObject={selectedObject}
           onSetFramingCoordinates={handleSetFramingCoordinates}
         />
@@ -262,7 +525,7 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
         />
 
         {/* Bottom Status Bar */}
-        <BottomStatusBar currentFov={currentFov} />
+        {!isMobileShell && <BottomStatusBar currentFov={currentFov} />}
 
         {/* Center Crosshair */}
         <CenterCrosshair />
@@ -271,7 +534,7 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
         {isTauri() && (
           <>
             <UpdateBanner
-              className="absolute top-12 left-1/2 -translate-x-1/2 z-40"
+              className="absolute left-1/2 -translate-x-1/2 z-40 top-[calc(3rem+var(--safe-area-top))]"
               onOpenDialog={() => setUpdateDialogOpen(true)}
             />
             <UpdateDialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen} />

@@ -1,9 +1,13 @@
 //! Online Astrometry.net plate solver integration.
 //! Handles the full online workflow: login, upload, polling, and result fetching.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
+use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter};
 
 use super::fits::{calculate_fov_from_wcs, parse_wcs_result_from_fits_bytes};
@@ -19,14 +23,139 @@ pub(super) async fn solve_with_online_astrometry(_config: &PlateSolverConfig) ->
     ))
 }
 
+static ACTIVE_ONLINE_SOLVES: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static ACTIVE_ONLINE_OPERATION_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
+struct ActiveOnlineSolveGuard {
+    operation_id: String,
+}
+
+impl Drop for ActiveOnlineSolveGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = ACTIVE_ONLINE_SOLVES.lock() {
+            guard.remove(&self.operation_id);
+        }
+
+        if let Ok(mut guard) = ACTIVE_ONLINE_OPERATION_ID.lock() {
+            if guard.as_ref() == Some(&self.operation_id) {
+                *guard = None;
+            }
+        }
+    }
+}
+
+fn generate_operation_id() -> String {
+    format!("online-{}", chrono::Utc::now().timestamp_millis())
+}
+
+fn ensure_not_cancelled(cancel_flag: &Arc<AtomicBool>) -> Result<(), PlateSolverError> {
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Err(PlateSolverError::SolveFailed("cancelled: Solve cancelled by user".to_string()));
+    }
+    Ok(())
+}
+
+fn classify_error_code(error: &PlateSolverError) -> String {
+    let message = error.to_string().to_lowercase();
+
+    if message.contains("offline") {
+        return "offline".to_string();
+    }
+    if message.contains("cancelled") || message.contains("canceled") {
+        return "cancelled".to_string();
+    }
+    if message.contains("auth_failed")
+        || message.contains("login failed")
+        || message.contains("invalid api key")
+        || message.contains("authentication failed")
+    {
+        return "auth_failed".to_string();
+    }
+    if message.contains("missing_api_key")
+        || message.contains("api key required")
+        || message.contains("missing api key")
+        || message.contains("no api key")
+        || message.contains("apikey required")
+        || message.contains("missing apikey")
+    {
+        return "missing_api_key".to_string();
+    }
+    if message.contains("upload_failed") || message.contains("upload failed") {
+        return "upload_failed".to_string();
+    }
+    if message.contains("timeout") || message.contains("timed out") {
+        return "timeout".to_string();
+    }
+    if message.contains("invalid image") || message.contains("image not found") {
+        return "invalid_image".to_string();
+    }
+    if message.contains("network") || message.contains("request failed") || message.contains("connection") {
+        return "network".to_string();
+    }
+    if message.contains("service_failed") || message.contains("solve failed") {
+        return "service_failed".to_string();
+    }
+
+    "unknown".to_string()
+}
+
+fn build_failed_result(
+    operation_id: &str,
+    error: PlateSolverError,
+    solve_time_ms: u64,
+) -> OnlineSolveResult {
+    let error_code = classify_error_code(&error);
+    OnlineSolveResult {
+        success: false,
+        operation_id: Some(operation_id.to_string()),
+        ra: None,
+        dec: None,
+        orientation: None,
+        pixscale: None,
+        radius: None,
+        parity: None,
+        fov_width: None,
+        fov_height: None,
+        objects_in_field: Vec::new(),
+        annotations: Vec::new(),
+        job_id: None,
+        wcs: None,
+        solve_time_ms,
+        error_code: Some(error_code),
+        error_message: Some(error.to_string()),
+    }
+}
+
 #[tauri::command]
 pub async fn solve_online(app: AppHandle, config: OnlineSolveConfig) -> Result<OnlineSolveResult, PlateSolverError> {
     let start = std::time::Instant::now();
+    let operation_id = config.operation_id.clone().unwrap_or_else(generate_operation_id);
     let base_url = config.base_url.clone().unwrap_or_else(|| "https://nova.astrometry.net".to_string());
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+
+    {
+        let mut guard = ACTIVE_ONLINE_SOLVES.lock().unwrap();
+        guard.insert(operation_id.clone(), Arc::clone(&cancel_flag));
+    }
+    {
+        let mut guard = ACTIVE_ONLINE_OPERATION_ID.lock().unwrap();
+        *guard = Some(operation_id.clone());
+    }
+    let _active_guard = ActiveOnlineSolveGuard {
+        operation_id: operation_id.clone(),
+    };
 
     if !PathBuf::from(&config.image_path).exists() {
-        return Err(PlateSolverError::InvalidImage(format!("Image not found: {}", config.image_path)));
+        return Ok(build_failed_result(
+            &operation_id,
+            PlateSolverError::InvalidImage(format!("Image not found: {}", config.image_path)),
+            start.elapsed().as_millis() as u64,
+        ));
     }
+
+    let run_result: Result<OnlineSolveResult, PlateSolverError> = async {
+        ensure_not_cancelled(&cancel_flag)?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -34,34 +163,61 @@ pub async fn solve_online(app: AppHandle, config: OnlineSolveConfig) -> Result<O
         .map_err(|e| PlateSolverError::SolveFailed(format!("HTTP client error: {}", e)))?;
 
     // Step 1: Login
-    emit_progress(&app, "login", 0.0, "Authenticating...", None, None);
+        emit_progress(&app, &operation_id, "login", 0.0, "Authenticating...", None, None);
     let session_key = astrometry_login(&client, &base_url, &config.api_key).await?;
+        ensure_not_cancelled(&cancel_flag)?;
 
     // Step 2: Upload image
-    emit_progress(&app, "upload", 10.0, "Uploading image...", None, None);
+        emit_progress(&app, &operation_id, "upload", 10.0, "Uploading image...", None, None);
     let sub_id = astrometry_upload(&client, &base_url, &session_key, &config).await?;
 
-    emit_progress(&app, "processing", 30.0, "Image uploaded, waiting for processing...", Some(sub_id), None);
+        emit_progress(
+            &app,
+            &operation_id,
+            "processing",
+            30.0,
+            "Image uploaded, waiting for processing...",
+            Some(sub_id),
+            None,
+        );
 
     // Step 3: Poll submission status to get job_id
     let timeout = config.timeout_seconds.unwrap_or(300);
     let poll_start = std::time::Instant::now();
     let jid: u64 = loop {
+            ensure_not_cancelled(&cancel_flag)?;
         if poll_start.elapsed().as_secs() > timeout as u64 {
-            return Err(PlateSolverError::SolveFailed("Online solve timed out".to_string()));
+                return Err(PlateSolverError::SolveFailed("timeout: Online solve timed out".to_string()));
         }
 
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            ensure_not_cancelled(&cancel_flag)?;
 
         match astrometry_check_submission(&client, &base_url, sub_id).await {
             Ok(Some(job)) => {
-                emit_progress(&app, "solving", 50.0, "Job started, solving...", Some(sub_id), Some(job));
+                    emit_progress(
+                        &app,
+                        &operation_id,
+                        "solving",
+                        50.0,
+                        "Job started, solving...",
+                        Some(sub_id),
+                        Some(job),
+                    );
                 break job;
             }
             Ok(None) => {
                 let elapsed = poll_start.elapsed().as_secs();
                 let progress = 30.0 + (elapsed as f64 / timeout as f64) * 20.0;
-                emit_progress(&app, "processing", progress.min(49.0), "Waiting for job...", Some(sub_id), None);
+                    emit_progress(
+                        &app,
+                        &operation_id,
+                        "processing",
+                        progress.min(49.0),
+                        "Waiting for job...",
+                        Some(sub_id),
+                        None,
+                    );
             }
             Err(e) => {
                 log::warn!("Submission poll error: {}", e);
@@ -71,26 +227,44 @@ pub async fn solve_online(app: AppHandle, config: OnlineSolveConfig) -> Result<O
 
     // Step 4: Poll job status
     loop {
+            ensure_not_cancelled(&cancel_flag)?;
         if poll_start.elapsed().as_secs() > timeout as u64 {
-            return Err(PlateSolverError::SolveFailed("Online solve timed out".to_string()));
+                return Err(PlateSolverError::SolveFailed("timeout: Online solve timed out".to_string()));
         }
 
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            ensure_not_cancelled(&cancel_flag)?;
 
         match astrometry_check_job(&client, &base_url, jid).await {
             Ok(status) => {
                 match status.as_str() {
                     "success" => {
-                        emit_progress(&app, "fetching", 80.0, "Solve complete, fetching results...", Some(sub_id), Some(jid));
+                            emit_progress(
+                                &app,
+                                &operation_id,
+                                "fetching",
+                                80.0,
+                                "Solve complete, fetching results...",
+                                Some(sub_id),
+                                Some(jid),
+                            );
                         break;
                     }
                     "failure" => {
-                        return Err(PlateSolverError::SolveFailed("Astrometry.net solve failed".to_string()));
+                            return Err(PlateSolverError::SolveFailed("service_failed: Astrometry.net solve failed".to_string()));
                     }
                     _ => {
                         let elapsed = poll_start.elapsed().as_secs();
                         let progress = 50.0 + (elapsed as f64 / timeout as f64) * 30.0;
-                        emit_progress(&app, "solving", progress.min(79.0), &format!("Solving... ({})", status), Some(sub_id), Some(jid));
+                            emit_progress(
+                                &app,
+                                &operation_id,
+                                "solving",
+                                progress.min(79.0),
+                                &format!("Solving... ({})", status),
+                                Some(sub_id),
+                                Some(jid),
+                            );
                     }
                 }
             }
@@ -108,36 +282,89 @@ pub async fn solve_online(app: AppHandle, config: OnlineSolveConfig) -> Result<O
     let fov_width = derived_fov_width.or_else(|| calibration_radius.map(|r| r * 2.0));
     let fov_height = derived_fov_height.or_else(|| calibration_radius.map(|r| r * 2.0));
 
-    emit_progress(&app, "complete", 100.0, "Solve complete!", Some(sub_id), Some(jid));
+        emit_progress(
+            &app,
+            &operation_id,
+            "complete",
+            100.0,
+            "Solve complete!",
+            Some(sub_id),
+            Some(jid),
+        );
 
     let solve_time_ms = start.elapsed().as_millis() as u64;
 
-    Ok(OnlineSolveResult {
-        success: true,
-        ra: calibration.get("ra").and_then(|v| v.as_f64()),
-        dec: calibration.get("dec").and_then(|v| v.as_f64()),
-        orientation: calibration.get("orientation").and_then(|v| v.as_f64()),
-        pixscale: calibration.get("pixscale").and_then(|v| v.as_f64()),
-        radius: calibration_radius,
-        parity: calibration.get("parity").and_then(|v| v.as_f64()),
-        fov_width,
-        fov_height,
-        objects_in_field: objects,
-        annotations,
-        job_id: Some(jid),
-        wcs: Some(wcs),
-        solve_time_ms,
-        error_message: None,
-    })
+        Ok(OnlineSolveResult {
+            success: true,
+            operation_id: Some(operation_id.clone()),
+            ra: calibration.get("ra").and_then(|v| v.as_f64()),
+            dec: calibration.get("dec").and_then(|v| v.as_f64()),
+            orientation: calibration.get("orientation").and_then(|v| v.as_f64()),
+            pixscale: calibration.get("pixscale").and_then(|v| v.as_f64()),
+            radius: calibration_radius,
+            parity: calibration.get("parity").and_then(|v| v.as_f64()),
+            fov_width,
+            fov_height,
+            objects_in_field: objects,
+            annotations,
+            job_id: Some(jid),
+            wcs: Some(wcs),
+            solve_time_ms,
+            error_code: None,
+            error_message: None,
+        })
+    }.await;
+
+    match run_result {
+        Ok(result) => Ok(result),
+        Err(error) => Ok(build_failed_result(
+            &operation_id,
+            error,
+            start.elapsed().as_millis() as u64,
+        )),
+    }
 }
 
-fn emit_progress(app: &AppHandle, stage: &str, progress: f64, message: &str, sub_id: Option<u64>, job_id: Option<u64>) {
+#[tauri::command]
+pub async fn cancel_online_solve(operation_id: Option<String>) -> Result<bool, PlateSolverError> {
+    let target_operation = match operation_id {
+        Some(id) => Some(id),
+        None => ACTIVE_ONLINE_OPERATION_ID.lock().unwrap().clone(),
+    };
+
+    let Some(operation_id) = target_operation else {
+        return Ok(false);
+    };
+
+    let cancel_flag = {
+        let guard = ACTIVE_ONLINE_SOLVES.lock().unwrap();
+        guard.get(&operation_id).cloned()
+    };
+
+    if let Some(flag) = cancel_flag {
+        flag.store(true, Ordering::Relaxed);
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn emit_progress(
+    app: &AppHandle,
+    operation_id: &str,
+    stage: &str,
+    progress: f64,
+    message: &str,
+    sub_id: Option<u64>,
+    job_id: Option<u64>,
+) {
     let _ = app.emit("astrometry-progress", OnlineSolveProgress {
         stage: stage.to_string(),
         progress,
         message: message.to_string(),
         sub_id,
         job_id,
+        operation_id: Some(operation_id.to_string()),
     });
 }
 
@@ -159,7 +386,7 @@ async fn astrometry_login(client: &reqwest::Client, base_url: &str, api_key: &st
             .ok_or_else(|| PlateSolverError::SolveFailed("No session key in login response".to_string()))
     } else {
         let err = json.get("errormessage").and_then(|v| v.as_str()).unwrap_or("Unknown login error");
-        Err(PlateSolverError::SolveFailed(format!("Login failed: {}", err)))
+        Err(PlateSolverError::SolveFailed(format!("auth_failed: {}", err)))
     }
 }
 
@@ -240,7 +467,7 @@ async fn astrometry_upload(client: &reqwest::Client, base_url: &str, session_key
             .ok_or_else(|| PlateSolverError::SolveFailed("No submission ID in upload response".to_string()))
     } else {
         let err = json.get("errormessage").and_then(|v| v.as_str()).unwrap_or("Unknown upload error");
-        Err(PlateSolverError::SolveFailed(format!("Upload failed: {}", err)))
+        Err(PlateSolverError::SolveFailed(format!("upload_failed: {}", err)))
     }
 }
 
@@ -360,6 +587,7 @@ mod tests {
         let config = OnlineSolveConfig {
             api_key: "test_key".to_string(),
             image_path: "/path/to/image.fits".to_string(),
+            operation_id: Some("op-1".to_string()),
             base_url: Some("https://nova.astrometry.net".to_string()),
             ra_hint: Some(180.0),
             dec_hint: Some(45.0),
@@ -393,6 +621,7 @@ mod tests {
     fn test_online_solve_result_structure() {
         let result = OnlineSolveResult {
             success: true,
+            operation_id: Some("op-1".to_string()),
             ra: Some(83.633),
             dec: Some(22.014),
             orientation: Some(45.0),
@@ -412,6 +641,7 @@ mod tests {
             job_id: Some(12345),
             wcs: None,
             solve_time_ms: 5000,
+            error_code: None,
             error_message: None,
         };
 
@@ -429,6 +659,7 @@ mod tests {
             message: "Job started".to_string(),
             sub_id: Some(100),
             job_id: Some(200),
+            operation_id: Some("op-1".to_string()),
         };
 
         let json = serde_json::to_string(&progress).unwrap();
@@ -450,6 +681,30 @@ mod tests {
         let deserialized: OnlineAnnotation = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.names.len(), 2);
         assert_eq!(deserialized.annotation_type, "nebula");
+    }
+
+    #[test]
+    fn test_classify_error_code_timeout() {
+        let err = PlateSolverError::SolveFailed("timeout: Online solve timed out".to_string());
+        assert_eq!(classify_error_code(&err), "timeout");
+    }
+
+    #[test]
+    fn test_classify_error_code_cancelled() {
+        let err = PlateSolverError::SolveFailed("cancelled: Solve cancelled by user".to_string());
+        assert_eq!(classify_error_code(&err), "cancelled");
+    }
+
+    #[test]
+    fn test_classify_error_code_invalid_api_key_maps_to_auth_failed() {
+        let err = PlateSolverError::SolveFailed("Login failed: invalid api key".to_string());
+        assert_eq!(classify_error_code(&err), "auth_failed");
+    }
+
+    #[tokio::test]
+    async fn test_cancel_online_solve_without_active_task() {
+        let cancelled = cancel_online_solve(None).await.unwrap();
+        assert!(!cancelled);
     }
 
     #[tokio::test]

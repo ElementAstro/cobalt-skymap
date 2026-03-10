@@ -7,6 +7,12 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import type { TourStep, TooltipPosition } from '@/types/starmap/onboarding';
 import { TOOLTIP_MARGIN, ARROW_SIZE } from '@/lib/constants/onboarding';
 
+function getSafeAreaInset(propertyName: '--safe-area-top' | '--safe-area-right' | '--safe-area-bottom' | '--safe-area-left'): number {
+  const rootStyles = window.getComputedStyle(document.documentElement);
+  const parsed = Number.parseFloat(rootStyles.getPropertyValue(propertyName));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 /**
  * Calculates and tracks the tooltip position relative to a tour step's target element.
  * Handles viewport boundary clamping, placement fallback, resize/scroll updates, and visibility animation.
@@ -33,17 +39,28 @@ export function useTourPosition(
       if (!tooltip) return;
 
       const tooltipRect = tooltip.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+      const visualViewport = window.visualViewport;
+      const viewportWidth = visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
+      const safeAreaTop = getSafeAreaInset('--safe-area-top');
+      const safeAreaRight = getSafeAreaInset('--safe-area-right');
+      const safeAreaBottom = getSafeAreaInset('--safe-area-bottom');
+      const safeAreaLeft = getSafeAreaInset('--safe-area-left');
+      const minLeft = TOOLTIP_MARGIN + safeAreaLeft;
+      const maxRight = viewportWidth - TOOLTIP_MARGIN - safeAreaRight;
+      const minTop = TOOLTIP_MARGIN + safeAreaTop;
+      const maxBottom = viewportHeight - TOOLTIP_MARGIN - safeAreaBottom;
       const targetRect = element?.getBoundingClientRect();
       const padding = step.highlightPadding || 8;
       const gap = ARROW_SIZE + 6;
 
       // Center placement (no target element or center specified)
       if (!element || step.placement === 'center' || !targetRect) {
+        const availableWidth = Math.max(0, maxRight - minLeft - tooltipRect.width);
+        const availableHeight = Math.max(0, maxBottom - minTop - tooltipRect.height);
         setPosition({
-          top: (viewportHeight - tooltipRect.height) / 2,
-          left: (viewportWidth - tooltipRect.width) / 2,
+          top: minTop + availableHeight / 2,
+          left: minLeft + availableWidth / 2,
           arrowPosition: 'none',
           arrowOffset: 0,
         });
@@ -54,10 +71,10 @@ export function useTourPosition(
       const targetCenterY = targetRect.top + targetRect.height / 2;
 
       const canPlace = {
-        bottom: targetRect.bottom + padding + gap + tooltipRect.height < viewportHeight - TOOLTIP_MARGIN,
-        top: targetRect.top - padding - gap - tooltipRect.height > TOOLTIP_MARGIN,
-        left: targetRect.left - padding - gap - tooltipRect.width > TOOLTIP_MARGIN,
-        right: targetRect.right + padding + gap + tooltipRect.width < viewportWidth - TOOLTIP_MARGIN,
+        bottom: targetRect.bottom + padding + gap + tooltipRect.height < maxBottom,
+        top: targetRect.top - padding - gap - tooltipRect.height > minTop,
+        left: targetRect.left - padding - gap - tooltipRect.width > minLeft,
+        right: targetRect.right + padding + gap + tooltipRect.width < maxRight,
       };
 
       const placementOrder = [
@@ -103,25 +120,25 @@ export function useTourPosition(
       }
 
       // Ensure tooltip stays within viewport
-      if (left < TOOLTIP_MARGIN) {
-        const diff = TOOLTIP_MARGIN - left;
-        left = TOOLTIP_MARGIN;
+      if (left < minLeft) {
+        const diff = minLeft - left;
+        left = minLeft;
         if (arrowPosition === 'top' || arrowPosition === 'bottom') {
           arrowOffset = Math.max(ARROW_SIZE * 2, arrowOffset - diff);
         }
       }
-      if (left + tooltipRect.width > viewportWidth - TOOLTIP_MARGIN) {
-        const diff = left + tooltipRect.width - (viewportWidth - TOOLTIP_MARGIN);
-        left = viewportWidth - TOOLTIP_MARGIN - tooltipRect.width;
+      if (left + tooltipRect.width > maxRight) {
+        const diff = left + tooltipRect.width - maxRight;
+        left = Math.max(minLeft, maxRight - tooltipRect.width);
         if (arrowPosition === 'top' || arrowPosition === 'bottom') {
           arrowOffset = Math.min(tooltipRect.width - ARROW_SIZE * 2, arrowOffset + diff);
         }
       }
-      if (top < TOOLTIP_MARGIN) {
-        top = TOOLTIP_MARGIN;
+      if (top < minTop) {
+        top = minTop;
       }
-      if (top + tooltipRect.height > viewportHeight - TOOLTIP_MARGIN) {
-        top = viewportHeight - TOOLTIP_MARGIN - tooltipRect.height;
+      if (top + tooltipRect.height > maxBottom) {
+        top = Math.max(minTop, maxBottom - tooltipRect.height);
       }
 
       setPosition({ top, left, arrowPosition, arrowOffset });
@@ -139,6 +156,8 @@ export function useTourPosition(
     // Update on resize
     window.addEventListener('resize', calculatePosition);
     window.addEventListener('scroll', calculatePosition, true);
+    window.visualViewport?.addEventListener('resize', calculatePosition);
+    window.visualViewport?.addEventListener('scroll', calculatePosition);
 
     // Use ResizeObserver on target element instead of MutationObserver on body
     let resizeObserver: ResizeObserver | undefined;
@@ -153,6 +172,8 @@ export function useTourPosition(
       clearTimeout(timer);
       window.removeEventListener('resize', calculatePosition);
       window.removeEventListener('scroll', calculatePosition, true);
+      window.visualViewport?.removeEventListener('resize', calculatePosition);
+      window.visualViewport?.removeEventListener('scroll', calculatePosition);
       resizeObserver?.disconnect();
     };
   }, [calculatePosition, step.targetSelector]);

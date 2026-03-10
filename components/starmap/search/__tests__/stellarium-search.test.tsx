@@ -16,6 +16,8 @@ function createMockSearchHook(overrides: Record<string, unknown> = {}) {
     groupedResults: new Map(),
     isSearching: false,
     isOnlineSearching: false,
+    searchOutcome: 'empty',
+    searchMessages: [],
     onlineAvailable: false,
     searchStats: { totalResults: 0, resultsByType: {}, searchTimeMs: 0 },
     filters: {
@@ -404,6 +406,34 @@ describe('StellariumSearch', () => {
 
     render(<StellariumSearch {...defaultProps} />);
     expect(screen.getByTestId('search-input')).toBeInTheDocument();
+  });
+
+  it('shows partial-success indicator when some sources fail', () => {
+    const { useObjectSearch } = jest.requireMock('@/lib/hooks');
+    useObjectSearch.mockReturnValue(createMockSearchHook({
+      query: 'M31',
+      searchOutcome: 'partial_success',
+      searchMessages: [{ source: 'online', level: 'warning', message: 'timeout' }],
+      results: [{ Name: 'M31', Type: 'DSO' }],
+      groupedResults: new Map([['DSO', [{ Name: 'M31', Type: 'DSO' }]]]),
+    }));
+
+    render(<StellariumSearch {...defaultProps} />);
+    expect(screen.getAllByText(/search\.partialResults/i).length).toBeGreaterThan(0);
+  });
+
+  it('shows error state when searchOutcome is error', () => {
+    const { useObjectSearch } = jest.requireMock('@/lib/hooks');
+    useObjectSearch.mockReturnValue(createMockSearchHook({
+      query: 'M31',
+      searchOutcome: 'error',
+      searchMessages: [{ source: 'online', level: 'error', message: 'provider-down' }],
+      results: [],
+      groupedResults: new Map(),
+    }));
+
+    render(<StellariumSearch {...defaultProps} />);
+    expect(screen.getByText('search.searchFailed')).toBeInTheDocument();
   });
 
   it('exposes focusSearchInput via ref', () => {

@@ -6,6 +6,7 @@
  */
 
 import type { SolveProgress } from './astrometry-api';
+import type { OnlineSolveSessionState } from './online-solve-contract';
 import type { SolveMode } from '@/types/starmap/plate-solving';
 
 // ============================================================================
@@ -56,10 +57,32 @@ export async function persistFileForLocalSolve(
  * Get human-readable progress text for the online solver
  */
 export function getProgressText(
-  progress: SolveProgress | null,
+  progress: SolveProgress | OnlineSolveSessionState | null,
   t: (key: string) => string
 ): string | undefined {
   if (!progress) return '';
+  if ('runtime' in progress) {
+    const text = {
+      preflight: t('plateSolving.preflight') || 'Checking requirements...',
+      authenticating: t('plateSolving.authenticating') || 'Authenticating...',
+      uploading: `${t('plateSolving.uploading') || 'Uploading'}... ${progress.progress}%`,
+      queued: progress.subId !== null
+        ? `${t('plateSolving.queued') || 'Queued'} (ID: ${progress.subId})`
+        : (t('plateSolving.queued') || 'Queued'),
+      solving: progress.jobId !== null
+        ? `${t('plateSolving.processing') || 'Processing'} (Job: ${progress.jobId})`
+        : (t('plateSolving.processing') || 'Processing'),
+      fetching: t('plateSolving.fetchingResult') || 'Fetching solve result...',
+      success: t('plateSolving.success') || 'Success!',
+      failed: progress.errorMessage
+        ? `${t('plateSolving.failed') || 'Failed'}: ${progress.errorMessage}`
+        : (t('plateSolving.failed') || 'Failed'),
+      cancelled: t('plateSolving.cancelled') || 'Solve cancelled by user',
+      idle: '',
+    } satisfies Record<OnlineSolveSessionState['stage'], string>;
+    return text[progress.stage];
+  }
+
   switch (progress.stage) {
     case 'uploading':
       return `${t('plateSolving.uploading') || 'Uploading'}... ${progress.progress}%`;
@@ -80,10 +103,26 @@ export function getProgressText(
 export function getProgressPercent(
   solveMode: SolveMode,
   localProgress: number,
-  progress: SolveProgress | null
+  progress: SolveProgress | OnlineSolveSessionState | null
 ): number {
   if (solveMode === 'local') return localProgress;
   if (!progress) return 0;
+  if ('runtime' in progress) {
+    switch (progress.stage) {
+      case 'idle': return 0;
+      case 'preflight': return 5;
+      case 'authenticating': return 10;
+      case 'uploading': return Math.max(10, progress.progress * 0.3);
+      case 'queued': return Math.max(30, progress.progress);
+      case 'solving': return Math.max(50, progress.progress);
+      case 'fetching': return Math.max(80, progress.progress);
+      case 'success': return 100;
+      case 'failed': return 100;
+      case 'cancelled': return 100;
+      default: return 0;
+    }
+  }
+
   switch (progress.stage) {
     case 'uploading': return progress.progress * 0.3;
     case 'queued': return 30;

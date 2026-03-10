@@ -518,7 +518,7 @@ export function MarkerManager({ initialCoords, onNavigateToMarker }: MarkerManag
 
           <Separator />
 
-          <ScrollArea className="h-[calc(100vh-180px)]">
+          <ScrollArea className="h-[calc(100vh-180px)] h-[calc(100dvh-180px)]">
             {filteredMarkers.length === 0 ? (
               <EmptyState
                 icon={MapPinned}

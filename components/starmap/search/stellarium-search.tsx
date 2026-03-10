@@ -60,6 +60,8 @@ export const StellariumSearch = forwardRef<StellariumSearchRef, StellariumSearch
       groupedResults,
       isSearching,
       isOnlineSearching,
+      searchOutcome,
+      searchMessages,
       selectedIds,
       filters,
       sortBy,
@@ -268,6 +270,9 @@ export const StellariumSearch = forwardRef<StellariumSearchRef, StellariumSearch
 
     const selectedCount = selectedIds.size;
     const hasResults = results.length > 0;
+    const hasPartialOutcome = searchOutcome === 'partial_success';
+    const hasErrorOutcome = searchOutcome === 'error';
+    const firstSearchMessage = searchMessages[0]?.message;
 
     // Determine if we should show the results panel
     const showResultsPanel = isFocused || query.length > 0;
@@ -408,12 +413,28 @@ export const StellariumSearch = forwardRef<StellariumSearchRef, StellariumSearch
           </div>
         )}
 
+        {/* Partial-success indicator */}
+        {showResultsPanel && query && !isSearching && hasPartialOutcome && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
+            {t('search.partialResults', {
+              defaultValue: 'Partial results: showing available matches while some sources failed.',
+            })}
+            {firstSearchMessage ? ` ${firstSearchMessage}` : ''}
+          </div>
+        )}
+
         {/* Search Statistics */}
         {showResultsPanel && searchStats && hasResults && !isSearching && (
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground py-1">
             <span>{t('search.foundResults', { count: searchStats.totalResults })}</span>
             <span className="text-muted-foreground/50">•</span>
             <span>{searchStats.searchTimeMs}ms</span>
+            {hasPartialOutcome && (
+              <>
+                <span className="text-muted-foreground/50">•</span>
+                <span>{t('search.partialResultsBadge', { defaultValue: 'Partial' })}</span>
+              </>
+            )}
             {onlineAvailable && (
               <>
                 <span className="text-muted-foreground/50">•</span>
@@ -460,11 +481,21 @@ export const StellariumSearch = forwardRef<StellariumSearchRef, StellariumSearch
         )}
 
         {/* Empty State */}
-        {showResultsPanel && query && !hasResults && !isSearching && (
+        {showResultsPanel && query && !hasResults && !isSearching && !hasErrorOutcome && (
           <EmptyState
             icon={CircleDot}
             message={t('starmap.noObjectsFound')}
             hint={t('starmap.trySearching')}
+            className="py-4"
+          />
+        )}
+
+        {/* Error State */}
+        {showResultsPanel && query && !isSearching && hasErrorOutcome && (
+          <EmptyState
+            icon={CircleDot}
+            message={t('search.searchFailed', { defaultValue: 'Search failed' })}
+            hint={firstSearchMessage || t('search.onlineSearchFailed')}
             className="py-4"
           />
         )}

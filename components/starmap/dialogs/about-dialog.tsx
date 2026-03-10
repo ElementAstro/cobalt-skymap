@@ -9,14 +9,24 @@ import {
   Github,
   ExternalLink,
   Heart,
-  ChevronRight,
   MessageCircleWarning,
 } from 'lucide-react';
 import { SkyMapLogo } from '@/components/icons';
-import { Button } from '@/components/ui/button';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -25,265 +35,312 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import type { LicenseInfo, DependencyInfo, DataCreditInfo } from '@/types/about';
 import { APP_INFO, LICENSES, DEPENDENCIES, DATA_CREDITS } from '@/lib/constants/about-data';
+import {
+  STARMAP_DIALOG_ICON_TRIGGER_CLASS,
+  STARMAP_DIALOG_SCROLL_BODY_CLASS,
+} from './dialog-layout';
 import { StellariumCredits } from './stellarium-credits';
 import { FeedbackDialog } from './feedback-dialog';
 
-// ============================================================================
-// Sub Components
-// ============================================================================
+const DEPENDENCY_TYPE_COLORS: Record<string, string> = {
+  core: 'bg-blue-500/20 text-blue-700 dark:text-blue-400',
+  dev: 'bg-gray-500/20 text-gray-700 dark:text-gray-400',
+  style: 'bg-purple-500/20 text-purple-700 dark:text-purple-400',
+  state: 'bg-green-500/20 text-green-700 dark:text-green-400',
+  i18n: 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400',
+  ui: 'bg-pink-500/20 text-pink-700 dark:text-pink-400',
+  util: 'bg-orange-500/20 text-orange-700 dark:text-orange-400',
+};
 
-function LicenseCard({ item, t }: { item: LicenseInfo; t: ReturnType<typeof useTranslations> }) {
+function LicenseAccordionItem({
+  item,
+  t,
+}: {
+  item: LicenseInfo;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  return (
+    <AccordionItem value={item.name} className="rounded-lg border px-3">
+      <AccordionTrigger className="py-3 hover:no-underline">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium">{item.name}</span>
+          <Badge variant="outline" className="text-[10px]">
+            {item.license}
+          </Badge>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent className="space-y-3 pb-3">
+        <p className="text-xs text-muted-foreground">{t(item.descriptionKey)}</p>
+        <Button variant="outline" size="sm" asChild className="w-full justify-between">
+          <a href={item.url} target="_blank" rel="noopener noreferrer">
+            <span className="truncate">{item.url}</span>
+            <ExternalLink className="h-4 w-4 shrink-0" />
+          </a>
+        </Button>
+      </AccordionContent>
+    </AccordionItem>
+  );
+}
+
+function DataCreditRow({
+  item,
+  t,
+}: {
+  item: DataCreditInfo;
+  t: ReturnType<typeof useTranslations>;
+}) {
   return (
     <a
       href={item.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors group"
+      className="flex items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted/50"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm truncate">{item.name}</span>
-            <Badge variant="outline" className="text-[10px] shrink-0">
-              {item.license}
-            </Badge>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-            {t(item.descriptionKey)}
-          </p>
-        </div>
-        <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary shrink-0" />
-      </div>
+      <span>{t(item.nameKey)}</span>
+      <span className="text-xs text-muted-foreground">{item.source}</span>
     </a>
   );
 }
 
-function DependencyRow({ item, t }: { item: DependencyInfo; t: ReturnType<typeof useTranslations> }) {
-  const typeColors: Record<string, string> = {
-    core: 'bg-blue-500/20 text-blue-700 dark:text-blue-400',
-    dev: 'bg-gray-500/20 text-gray-700 dark:text-gray-400',
-    style: 'bg-purple-500/20 text-purple-700 dark:text-purple-400',
-    state: 'bg-green-500/20 text-green-700 dark:text-green-400',
-    i18n: 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400',
-    ui: 'bg-pink-500/20 text-pink-700 dark:text-pink-400',
-    util: 'bg-orange-500/20 text-orange-700 dark:text-orange-400',
-  };
-
+function DependencyTable({
+  data,
+  t,
+}: {
+  data: DependencyInfo[];
+  t: ReturnType<typeof useTranslations>;
+}) {
   return (
-    <div className="flex items-center justify-between py-2 px-3 rounded hover:bg-muted/50">
-      <div className="flex items-center gap-2">
-        <Package className="h-3 w-3 text-muted-foreground" />
-        <span className="text-sm font-mono">{item.name}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-mono text-muted-foreground">{item.version}</span>
-        <Badge className={cn('text-[10px]', typeColors[item.type] || 'bg-gray-500/20')}>
-          {t(`about.depType.${item.type}`)}
-        </Badge>
-      </div>
+    <div className="rounded-lg border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('about.depPackage')}</TableHead>
+            <TableHead>{t('about.depVersion')}</TableHead>
+            <TableHead className="text-right">{t('about.depTypeLabel')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.map((item) => (
+            <TableRow key={item.name}>
+              <TableCell className="font-mono">{item.name}</TableCell>
+              <TableCell className="font-mono text-xs text-muted-foreground">
+                {item.version}
+              </TableCell>
+              <TableCell className="text-right">
+                <Badge
+                  className={cn(
+                    'text-[10px]',
+                    DEPENDENCY_TYPE_COLORS[item.type] || 'bg-gray-500/20'
+                  )}
+                >
+                  {t(`about.depType.${item.type}`)}
+                </Badge>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
-
-function DataCreditRow({ item, t }: { item: DataCreditInfo; t: ReturnType<typeof useTranslations> }) {
-  return (
-    <a
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center justify-between py-2 px-3 rounded hover:bg-muted/50 group"
-    >
-      <div className="flex items-center gap-2">
-        <ChevronRight className="h-3 w-3 text-muted-foreground" />
-        <span className="text-sm">{t(item.nameKey)}</span>
-      </div>
-      <span className="text-xs text-muted-foreground group-hover:text-primary">
-        {item.source}
-      </span>
-    </a>
-  );
-}
-
-// ============================================================================
-// Main Component
-// ============================================================================
 
 export function AboutDialog() {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
+  const handleReportIssue = () => {
+    setOpen(false);
+    window.setTimeout(() => setFeedbackOpen(true), 80);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DialogTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent"
-              aria-label={t('about.title')}
-            >
-              <Info className="h-5 w-5" />
-            </Button>
-          </DialogTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{t('about.title')}</p>
-        </TooltipContent>
-      </Tooltip>
+    <>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={STARMAP_DIALOG_ICON_TRIGGER_CLASS}
+                aria-label={t('about.title')}
+              >
+                <Info className="h-5 w-5" />
+              </Button>
+            </DialogTrigger>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('about.title')}</p>
+          </TooltipContent>
+        </Tooltip>
 
-      <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
-        <DialogHeader className="p-6 pb-0 shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            <SkyMapLogo className="h-5 w-5 text-primary" />
-            {t('about.title')}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            {t('about.appDescription')}
-          </DialogDescription>
-        </DialogHeader>
+        <DialogContent className="flex max-h-[85vh] max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[680px]">
+          <DialogHeader className="shrink-0 p-6 pb-0">
+            <DialogTitle className="flex items-center gap-2">
+              <SkyMapLogo className="h-5 w-5 text-primary" />
+              {t('about.title')}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('about.appDescription')}
+            </DialogDescription>
+          </DialogHeader>
 
-        <Tabs defaultValue="about" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="mx-6 mt-4 grid grid-cols-3 shrink-0">
-            <TabsTrigger value="about" className="text-xs sm:text-sm">
-              <Info className="h-4 w-4 mr-1 hidden sm:inline" />
-              {t('about.aboutTab')}
-            </TabsTrigger>
-            <TabsTrigger value="licenses" className="text-xs sm:text-sm">
-              <FileText className="h-4 w-4 mr-1 hidden sm:inline" />
-              {t('about.licensesTab')}
-            </TabsTrigger>
-            <TabsTrigger value="deps" className="text-xs sm:text-sm">
-              <Package className="h-4 w-4 mr-1 hidden sm:inline" />
-              {t('about.depsTab')}
-            </TabsTrigger>
-          </TabsList>
+          <Tabs defaultValue="about" className="flex min-h-0 flex-1 flex-col">
+            <TabsList className="mx-6 mt-4 grid shrink-0 grid-cols-3">
+              <TabsTrigger value="about" className="text-xs sm:text-sm">
+                <Info className="mr-1 hidden h-4 w-4 sm:inline" />
+                {t('about.aboutTab')}
+              </TabsTrigger>
+              <TabsTrigger value="licenses" className="text-xs sm:text-sm">
+                <FileText className="mr-1 hidden h-4 w-4 sm:inline" />
+                {t('about.licensesTab')}
+              </TabsTrigger>
+              <TabsTrigger value="deps" className="text-xs sm:text-sm">
+                <Package className="mr-1 hidden h-4 w-4 sm:inline" />
+                {t('about.depsTab')}
+              </TabsTrigger>
+            </TabsList>
 
-          {/* About Tab */}
-          <TabsContent value="about" className="flex-1 min-h-0 p-6 pt-4">
-            <ScrollArea className="max-h-[calc(85vh-13rem)]">
-              <div className="space-y-6 pr-2">
-                {/* App Info */}
-                <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-xl bg-muted/50">
-                  <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center">
-                    <SkyMapLogo className="h-8 w-8 text-primary" />
-                  </div>
-                  <div className="text-center sm:text-left">
-                    <h2 className="text-xl font-bold">{APP_INFO.name}</h2>
-                    <p className="text-sm text-muted-foreground">v{APP_INFO.version}</p>
-                    <p className="text-sm text-muted-foreground mt-1">{t('about.appDescription')}</p>
-                  </div>
-                </div>
-
-                {/* Links */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Button
-                    variant="outline"
-                    asChild
-                    className="flex items-center justify-start gap-3 p-3 h-auto rounded-lg hover:border-primary/50 hover:bg-muted/50"
-                  >
-                    <a
-                      href={APP_INFO.repository}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Github className="h-5 w-5" />
-                      <div>
-                        <p className="text-sm font-medium">{t('about.sourceCode')}</p>
-                        <p className="text-xs text-muted-foreground">GitHub</p>
+            <TabsContent value="about" className="min-h-0 flex-1 p-6 pt-4">
+              <ScrollArea className={STARMAP_DIALOG_SCROLL_BODY_CLASS}>
+                <div className="space-y-4 pr-2">
+                  <Card className="gap-4 py-4">
+                    <CardHeader className="px-4 pb-0">
+                      <div className="flex flex-col items-center gap-4 sm:flex-row">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20">
+                          <SkyMapLogo className="h-8 w-8 text-primary" />
+                        </div>
+                        <div className="text-center sm:text-left">
+                          <CardTitle>{APP_INFO.name}</CardTitle>
+                          <CardDescription className="mt-1">
+                            v{APP_INFO.version}
+                          </CardDescription>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {t('about.appDescription')}
+                          </p>
+                        </div>
                       </div>
-                    </a>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex items-center justify-start gap-3 p-3 h-auto rounded-lg hover:border-primary/50 hover:bg-muted/50 text-left"
-                    onClick={() => setFeedbackOpen(true)}
-                    data-testid="report-issue-button"
-                  >
-                    <MessageCircleWarning className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="text-sm font-medium">{t('about.reportIssue')}</p>
-                      <p className="text-xs text-muted-foreground">{t('about.reportIssueDescription')}</p>
-                    </div>
-                  </Button>
-                </div>
-                <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                  <Heart className="h-5 w-5 text-red-500" />
-                  <div>
-                    <p className="text-sm font-medium">{t('about.madeWith')}</p>
-                    <p className="text-xs text-muted-foreground">{APP_INFO.author}</p>
+                    </CardHeader>
+                  </Card>
+
+                  <Card className="gap-3 py-4">
+                    <CardHeader className="px-4 pb-0">
+                      <CardTitle className="text-sm">{t('about.sourceCode')}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid gap-3 px-4 sm:grid-cols-2">
+                      <Button
+                        variant="outline"
+                        asChild
+                        className="h-auto justify-start gap-3 p-3"
+                      >
+                        <a href={APP_INFO.repository} target="_blank" rel="noopener noreferrer">
+                          <Github className="h-5 w-5" />
+                          <div className="text-left">
+                            <p className="text-sm font-medium">{t('about.sourceCode')}</p>
+                            <p className="text-xs text-muted-foreground">GitHub</p>
+                          </div>
+                        </a>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="h-auto justify-start gap-3 p-3 text-left"
+                        onClick={handleReportIssue}
+                        data-testid="report-issue-button"
+                      >
+                        <MessageCircleWarning className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="text-sm font-medium">{t('about.reportIssue')}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {t('about.reportIssueDescription')}
+                          </p>
+                        </div>
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="gap-3 py-4">
+                    <CardHeader className="px-4 pb-0">
+                      <CardTitle className="text-sm">{t('about.dataCredits')}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 px-4">
+                      {DATA_CREDITS.map((item) => (
+                        <DataCreditRow key={item.nameKey} item={item} t={t} />
+                      ))}
+                      <StellariumCredits />
+                    </CardContent>
+                  </Card>
+
+                  <Card className="gap-2 py-4">
+                    <CardContent className="flex items-center gap-3 px-4">
+                      <Heart className="h-5 w-5 text-red-500" />
+                      <div>
+                        <p className="text-sm font-medium">{t('about.madeWith')}</p>
+                        <p className="text-xs text-muted-foreground">{APP_INFO.author}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="pt-2 text-center text-xs text-muted-foreground">
+                    <p>
+                      © {new Date().getFullYear()} {APP_INFO.author}.{' '}
+                      {t('about.allRightsReserved')}
+                    </p>
+                    <p className="mt-1">{t('about.poweredBy')}</p>
                   </div>
                 </div>
+              </ScrollArea>
+            </TabsContent>
 
-                <Separator />
-
-                {/* Data Credits */}
-                <div>
-                  <h3 className="text-sm font-medium mb-3">{t('about.dataCredits')}</h3>
-                  <div className="space-y-1 rounded-lg border border-border overflow-hidden">
-                    {DATA_CREDITS.map((item) => (
-                      <DataCreditRow key={item.nameKey} item={item} t={t} />
+            <TabsContent value="licenses" className="min-h-0 flex-1 p-6 pt-4">
+              <ScrollArea className={STARMAP_DIALOG_SCROLL_BODY_CLASS}>
+                <div className="space-y-3 pr-2">
+                  <p className="text-sm text-muted-foreground">
+                    {t('about.licensesDescription')}
+                  </p>
+                  <Accordion type="multiple" className="space-y-2">
+                    {LICENSES.map((item) => (
+                      <LicenseAccordionItem key={item.name} item={item} t={t} />
                     ))}
-                  </div>
-                  <div className="mt-3">
-                    <StellariumCredits />
-                  </div>
+                  </Accordion>
                 </div>
+              </ScrollArea>
+            </TabsContent>
 
-                {/* Copyright */}
-                <div className="text-center text-xs text-muted-foreground pt-4">
-                  <p>© {new Date().getFullYear()} {APP_INFO.author}. {t('about.allRightsReserved')}</p>
-                  <p className="mt-1">{t('about.poweredBy')}</p>
+            <TabsContent value="deps" className="min-h-0 flex-1 p-6 pt-4">
+              <ScrollArea className={STARMAP_DIALOG_SCROLL_BODY_CLASS}>
+                <div className="space-y-4 pr-2">
+                  <p className="text-sm text-muted-foreground">{t('about.depsDescription')}</p>
+                  <DependencyTable data={DEPENDENCIES} t={t} />
+                  <p className="text-center text-xs text-muted-foreground">
+                    {t('about.totalDeps', { count: DEPENDENCIES.length })}
+                  </p>
                 </div>
-              </div>
-            </ScrollArea>
-          </TabsContent>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
 
-          {/* Licenses Tab */}
-          <TabsContent value="licenses" className="flex-1 min-h-0 p-6 pt-4">
-            <ScrollArea className="max-h-[calc(85vh-13rem)]">
-              <div className="space-y-3 pr-2">
-                <p className="text-sm text-muted-foreground mb-4">
-                  {t('about.licensesDescription')}
-                </p>
-                {LICENSES.map((item) => (
-                  <LicenseCard key={item.name} item={item} t={t} />
-                ))}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-
-          {/* Dependencies Tab */}
-          <TabsContent value="deps" className="flex-1 min-h-0 p-6 pt-4">
-            <ScrollArea className="max-h-[calc(85vh-13rem)]">
-              <div className="pr-2">
-                <p className="text-sm text-muted-foreground mb-4">
-                  {t('about.depsDescription')}
-                </p>
-                <div className="rounded-lg border border-border overflow-hidden">
-                  {DEPENDENCIES.map((item) => (
-                    <DependencyRow key={item.name} item={item} t={t} />
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground text-center mt-4">
-                  {t('about.totalDeps', { count: DEPENDENCIES.length })}
-                </p>
-              </div>
-            </ScrollArea>
-          </TabsContent>
-        </Tabs>
-        <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-      </DialogContent>
-    </Dialog>
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+    </>
   );
 }

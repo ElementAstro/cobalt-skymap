@@ -101,7 +101,10 @@ jest.mock('@/lib/i18n/locale-store', () => ({
   useLocaleStore: { getState: () => ({ setLocale: mockSetLocale }) },
 }));
 
-import { applyImportedSettings } from '../settings-export-import';
+import {
+  applyImportedSettings,
+  parseImportedSettingsProfile,
+} from '../settings-export-import';
 
 describe('applyImportedSettings', () => {
   beforeEach(() => {
@@ -276,5 +279,49 @@ describe('applyImportedSettings', () => {
       snoozedDate: null,
       lastSeenItemId: null,
     });
+  });
+});
+
+describe('parseImportedSettingsProfile', () => {
+  it('parses a legacy v4 payload and backfills metadata', () => {
+    const parsed = parseImportedSettingsProfile({
+      version: 4,
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      settings: {
+        connection: { ip: 'localhost', port: '1888' },
+        backendProtocol: 'http',
+      },
+    });
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data?.metadata?.schemaVersion).toBe(4);
+    expect(parsed.data?.metadata?.domains).toContain('settings');
+  });
+
+  it('rejects unsupported versions', () => {
+    const parsed = parseImportedSettingsProfile({
+      version: 999,
+      settings: {},
+    });
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe('Unsupported settings backup version');
+  });
+
+  it('keeps importable domains and reports invalid domains', () => {
+    const parsed = parseImportedSettingsProfile({
+      version: 5,
+      exportedAt: '2026-01-01T00:00:00.000Z',
+      settings: {
+        connection: { ip: '', port: '-1' },
+        backendProtocol: 'https',
+      },
+      keybindings: {},
+    });
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed.invalidDomains).toContain('settings');
+    expect(parsed.data?.keybindings).toEqual({});
+    expect(parsed.data?.metadata?.domains).toContain('keybindings');
   });
 });

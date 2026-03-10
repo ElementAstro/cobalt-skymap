@@ -11,15 +11,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useSettingsStore } from '@/lib/stores';
+import { useConnectionDraftModel } from '@/lib/hooks/use-settings-draft';
 import { SettingsSection } from './settings-shared';
 
 export function ConnectionSettings() {
   const t = useTranslations();
-  const connection = useSettingsStore((state) => state.connection);
-  const setConnection = useSettingsStore((state) => state.setConnection);
-  const backendProtocol = useSettingsStore((state) => state.backendProtocol);
-  const setBackendProtocol = useSettingsStore((state) => state.setBackendProtocol);
+  const {
+    connection,
+    setConnection,
+    backendProtocol,
+    setBackendProtocol,
+  } = useConnectionDraftModel();
 
   return (
     <SettingsSection

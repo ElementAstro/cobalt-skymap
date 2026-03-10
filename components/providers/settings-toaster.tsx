@@ -17,6 +17,12 @@ export function SettingsToaster() {
       richColors
       closeButton
       duration={toastDuration}
+      offset={{ bottom: 12, right: 12 }}
+      mobileOffset={{
+        bottom: 'calc(0.75rem + var(--safe-area-bottom))',
+        right: 'calc(0.75rem + var(--safe-area-right))',
+        left: 'calc(0.75rem + var(--safe-area-left))',
+      }}
     />
   );
 }

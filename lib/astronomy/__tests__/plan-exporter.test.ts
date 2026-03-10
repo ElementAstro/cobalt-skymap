@@ -62,12 +62,18 @@ describe('plan-exporter', () => {
     planDate: new Date('2025-10-10T00:00:00.000Z'),
     latitude: 40,
     longitude: -74,
+    sourcePlanId: 'plan_1',
+    sourcePlanName: 'Night Session',
+    exportedAt: '2025-10-09T19:00:00.000Z',
   };
 
   it('exports generic CSV format', () => {
     const csv = exportSessionPlan(makePlan(), { ...options, format: 'csv' });
     expect(csv).toContain('order,name,ra_deg,dec_deg');
+    expect(csv).toContain('plan_date_iso,exported_at_iso,source_plan_id,source_plan_name');
     expect(csv).toContain('"M31"');
+    expect(csv).toContain('"2025-10-09T19:00:00.000Z"');
+    expect(csv).toContain('"plan_1"');
   });
 
   it('exports SGP CSV wizard header and fields', () => {
@@ -79,9 +85,15 @@ describe('plan-exporter', () => {
 
   it('exports JSON with targets payload', () => {
     const json = exportSessionPlan(makePlan(), { ...options, format: 'json' });
-    const parsed = JSON.parse(json) as { targets: Array<{ name: string }> };
+    const parsed = JSON.parse(json) as {
+      exportDate: string;
+      source: { planId?: string; planName?: string };
+      targets: Array<{ name: string }>;
+    };
     expect(parsed.targets).toHaveLength(1);
     expect(parsed.targets[0].name).toBe('M31');
+    expect(parsed.exportDate).toBe('2025-10-09T19:00:00.000Z');
+    expect(parsed.source.planId).toBe('plan_1');
   });
 
   it('exports NINA Legacy/Simple Sequencer XML target set', () => {

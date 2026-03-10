@@ -404,7 +404,7 @@ export function SatelliteTracker() {
         </TooltipContent>
       </Tooltip>
       
-      <DialogContent className="sm:max-w-[550px] max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-[550px] max-h-[85vh] max-h-[85dvh] overflow-hidden flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Satellite className="h-5 w-5 text-primary" />

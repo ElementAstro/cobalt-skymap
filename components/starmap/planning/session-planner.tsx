@@ -64,6 +64,7 @@ import {
   GripVertical,
   Lock,
   Unlock,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMountStore, useStellariumStore, useEquipmentStore, useSessionPlanStore, usePlanningUiStore } from '@/lib/stores';
@@ -81,9 +82,15 @@ import {
 } from '@/lib/astronomy/astro-utils';
 import { optimizeScheduleV2 } from '@/lib/astronomy/session-scheduler-v2';
 import { exportSessionPlan } from '@/lib/astronomy/plan-exporter';
+import {
+  normalizeSessionDraft,
+  validateSessionDraft,
+  type DraftValidationIssue,
+} from '@/lib/astronomy/session-draft-validator';
 import type { ScheduledTarget, SessionPlan, OptimizationStrategy } from '@/types/starmap/planning';
 import type {
   ManualScheduleItem,
+  SessionConflict,
   SessionConstraintSet,
   SessionDraftV2,
   SessionPlanV2,
@@ -110,16 +117,30 @@ interface TimelineProps {
   showGaps: boolean;
 }
 
-function isSessionDraftV2(value: unknown): value is SessionDraftV2 {
-  if (!value || typeof value !== 'object') return false;
-  const draft = value as Partial<SessionDraftV2>;
-  return (
-    typeof draft.planDate === 'string'
-    && typeof draft.strategy === 'string'
-    && typeof draft.constraints === 'object'
-    && Array.isArray(draft.excludedTargetIds)
-    && Array.isArray(draft.manualEdits)
-  );
+interface ImportDiagnostics {
+  format: 'json' | 'csv' | 'nina-xml';
+  unmatchedTargets: string[];
+  createdTargets: string[];
+  skippedRows: number;
+  warnings: string[];
+}
+
+interface ParsedImportResult {
+  draft: SessionDraftV2;
+  diagnostics: ImportDiagnostics;
+}
+
+function issueToConflict(issue: DraftValidationIssue): SessionConflict {
+  const type = issue.code === 'session-window'
+    ? 'session-window'
+    : issue.code === 'manual-edit'
+      ? 'manual-time'
+      : 'insufficient-duration';
+  return {
+    type,
+    targetId: issue.targetId ?? 'global',
+    message: issue.message,
+  };
 }
 
 function SessionTimeline({ plan, twilight, onTargetClick, showGaps }: TimelineProps) {
@@ -459,7 +480,39 @@ function SortableTargetCard({ scheduled, children }: SortableTargetCardProps) {
 // Main Component
 // ============================================================================
 
-export function SessionPlanner() {
+export interface SessionPlannerButtonProps {
+  className?: string;
+}
+
+export function SessionPlannerButton({ className }: SessionPlannerButtonProps) {
+  const t = useTranslations();
+  const openSessionPlanner = usePlanningUiStore((state) => state.openSessionPlanner);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn("h-9 w-9", className)}
+          onClick={openSessionPlanner}
+        >
+          <CalendarClock className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{t('sessionPlanner.title')}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+export interface SessionPlannerProps {
+  showTrigger?: boolean;
+}
+
+export function SessionPlanner({ showTrigger = true }: SessionPlannerProps) {
   const t = useTranslations();
   const open = usePlanningUiStore((state) => state.sessionPlannerOpen);
   const setOpen = usePlanningUiStore((state) => state.setSessionPlannerOpen);
@@ -589,7 +642,7 @@ export function SessionPlanner() {
     minAltitude,
     minImagingTime,
     minMoonDistance,
-    sessionWindow: sessionWindowStartTime && sessionWindowEndTime
+    sessionWindow: sessionWindowStartTime || sessionWindowEndTime
       ? { startTime: sessionWindowStartTime, endTime: sessionWindowEndTime }
       : undefined,
     useExposurePlanDuration,
@@ -613,36 +666,39 @@ export function SessionPlanner() {
     useExposurePlanDuration,
   ]);
 
-  const applyDraft = useCallback((draft: SessionDraftV2) => {
-    setPlanDate(new Date(draft.planDate));
-    setStrategy(draft.strategy);
-    setMinAltitude(draft.constraints.minAltitude);
-    setMinImagingTime(draft.constraints.minImagingTime);
-    setMinMoonDistance(draft.constraints.minMoonDistance ?? 20);
-    setUseExposurePlanDuration(draft.constraints.useExposurePlanDuration ?? true);
-    setSessionWindowStartTime(draft.constraints.sessionWindow?.startTime ?? '');
-    setSessionWindowEndTime(draft.constraints.sessionWindow?.endTime ?? '');
-    const nextEnforceMountSafety = Boolean(draft.constraints.safetyLimits?.enforceMountSafety);
+  const applyDraft = useCallback((draftInput: SessionDraftV2) => {
+    const normalized = normalizeSessionDraft(draftInput);
+    setPlanDate(new Date(normalized.planDate));
+    setStrategy(normalized.strategy);
+    setMinAltitude(normalized.constraints.minAltitude);
+    setMinImagingTime(normalized.constraints.minImagingTime);
+    setMinMoonDistance(normalized.constraints.minMoonDistance ?? 20);
+    setUseExposurePlanDuration(normalized.constraints.useExposurePlanDuration ?? true);
+    setSessionWindowStartTime(normalized.constraints.sessionWindow?.startTime ?? '');
+    setSessionWindowEndTime(normalized.constraints.sessionWindow?.endTime ?? '');
+    const nextEnforceMountSafety = Boolean(normalized.constraints.safetyLimits?.enforceMountSafety);
     setEnforceMountSafety(nextEnforceMountSafety);
     setAvoidMeridianFlipWindow(
-      nextEnforceMountSafety && Boolean(draft.constraints.safetyLimits?.avoidMeridianFlipWindow),
+      nextEnforceMountSafety && Boolean(normalized.constraints.safetyLimits?.avoidMeridianFlipWindow),
     );
-    setSessionNotes(draft.notes ?? '');
+    setSessionNotes(normalized.notes ?? '');
     const mappedEdits: Record<string, ManualScheduleItem> = {};
-    draft.manualEdits.forEach((edit) => {
+    normalized.manualEdits.forEach((edit) => {
       mappedEdits[edit.targetId] = edit;
     });
     setManualEdits(mappedEdits);
-    setExcludedIds(new Set(draft.excludedTargetIds));
-    if (draft.weatherSnapshot?.source === 'manual') {
+    setExcludedIds(new Set(normalized.excludedTargetIds));
+    if (normalized.weatherSnapshot?.source === 'manual') {
       setWeatherInput({
-        cloudCover: draft.weatherSnapshot.cloudCover,
-        humidity: draft.weatherSnapshot.humidity,
-        windSpeed: draft.weatherSnapshot.windSpeed,
-        dewPoint: draft.weatherSnapshot.dewPoint,
+        cloudCover: normalized.weatherSnapshot.cloudCover,
+        humidity: normalized.weatherSnapshot.humidity,
+        windSpeed: normalized.weatherSnapshot.windSpeed,
+        dewPoint: normalized.weatherSnapshot.dewPoint,
       });
+    } else {
+      setWeatherInput({});
     }
-    setPlanningMode(draft.manualEdits.length > 0 ? 'manual' : 'auto');
+    setPlanningMode(normalized.manualEdits.length > 0 ? 'manual' : 'auto');
   }, []);
 
   const refreshWeatherAndSafety = useCallback(async () => {
@@ -670,11 +726,12 @@ export function SessionPlanner() {
       const result = await tauriApi.sessionIo.loadSessionTemplates();
       const converted: SavedSessionTemplate[] = [];
       for (const entry of result) {
-        if (!isSessionDraftV2(entry.draft)) continue;
+        const report = validateSessionDraft(entry.draft);
+        if (report.blockingIssues.length > 0) continue;
         converted.push({
           id: entry.id,
           name: entry.name,
-          draft: entry.draft,
+          draft: report.draft,
           createdAt: entry.created_at,
           updatedAt: entry.updated_at,
         });
@@ -685,9 +742,31 @@ export function SessionPlanner() {
     }
   }, []);
 
-  const parseImportedDraft = useCallback((rawContent: string): SessionDraftV2 | null => {
+  const parseImportedDraft = useCallback((rawContent: string): ParsedImportResult | null => {
     const content = rawContent.trim();
     if (!content) return null;
+
+    const knownTargetIds = new Set(activeTargets.map((target) => target.id));
+    const targetByName = new Map(activeTargets.map((target) => [target.name.trim().toLowerCase(), target.id]));
+
+    const finalizeDraft = (
+      candidate: unknown,
+      diagnostics: ImportDiagnostics,
+    ): ParsedImportResult | null => {
+      const report = validateSessionDraft(candidate, {
+        fallbackDate: planDate,
+        knownTargetIds,
+      });
+      diagnostics.warnings.push(...report.warningIssues.map((issue) => issue.message));
+      if (report.blockingIssues.length > 0) {
+        diagnostics.warnings.push(...report.blockingIssues.map((issue) => issue.message));
+        return null;
+      }
+      return {
+        draft: report.draft,
+        diagnostics,
+      };
+    };
 
     const parseCsvLine = (line: string): string[] => {
       const result: string[] = [];
@@ -716,8 +795,8 @@ export function SessionPlanner() {
       return result.map((v) => v.trim());
     };
 
-    const parseSkyMapCsv = (): SessionDraftV2 | null => {
-      const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const parseSkyMapCsv = (): ParsedImportResult | null => {
+      const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
       if (lines.length < 2) return null;
       const header = parseCsvLine(lines[0]);
       const idxName = header.indexOf('name');
@@ -725,47 +804,60 @@ export function SessionPlanner() {
       const idxEnd = header.indexOf('end_time');
       if (idxName < 0 || idxStart < 0 || idxEnd < 0) return null;
 
-      const targetByName = new Map(activeTargets.map((tgt) => [tgt.name.trim().toLowerCase(), tgt.id]));
+      const diagnostics: ImportDiagnostics = {
+        format: 'csv',
+        unmatchedTargets: [],
+        createdTargets: [],
+        skippedRows: 0,
+        warnings: [],
+      };
+
       const edits: ManualScheduleItem[] = [];
       let importedPlanDate: Date | null = null;
-
       for (const row of lines.slice(1)) {
         const cols = parseCsvLine(row);
         const name = cols[idxName]?.trim();
         const startIso = cols[idxStart]?.trim();
         const endIso = cols[idxEnd]?.trim();
-        if (!name || !startIso || !endIso) continue;
+        if (!name || !startIso || !endIso) {
+          diagnostics.skippedRows += 1;
+          continue;
+        }
         const targetId = targetByName.get(name.toLowerCase());
-        if (!targetId) continue;
-
+        if (!targetId) {
+          diagnostics.unmatchedTargets.push(name);
+          diagnostics.skippedRows += 1;
+          continue;
+        }
         const start = new Date(startIso);
         const end = new Date(endIso);
-        if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) continue;
+        if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+          diagnostics.skippedRows += 1;
+          continue;
+        }
         if (!importedPlanDate) importedPlanDate = start;
-        const durationMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
-
         edits.push({
           targetId,
           startTime: start.toTimeString().slice(0, 5),
           endTime: end.toTimeString().slice(0, 5),
-          durationMinutes,
+          durationMinutes: Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)),
           locked: true,
         });
       }
 
       if (edits.length === 0) return null;
 
-      return {
+      return finalizeDraft({
         planDate: (importedPlanDate ?? planDate).toISOString(),
         strategy: 'balanced',
         constraints,
         excludedTargetIds: [],
         manualEdits: edits,
         notes: '',
-      };
+      }, diagnostics);
     };
 
-    const parseNinaXml = (): SessionDraftV2 | null => {
+    const parseNinaXml = (): ParsedImportResult | null => {
       if (!content.startsWith('<')) return null;
       if (typeof DOMParser === 'undefined') return null;
 
@@ -776,21 +868,36 @@ export function SessionPlanner() {
       const lists = Array.from(doc.getElementsByTagName('CaptureSequenceList'));
       if (lists.length === 0) return null;
 
-      const existingByName = new Set(activeTargets.map((tgt) => tgt.name.trim().toLowerCase()));
+      const diagnostics: ImportDiagnostics = {
+        format: 'nina-xml',
+        unmatchedTargets: [],
+        createdTargets: [],
+        skippedRows: 0,
+        warnings: [],
+      };
+
+      const existingByName = new Set(activeTargets.map((target) => target.name.trim().toLowerCase()));
       const batch: Array<{ name: string; ra: number; dec: number; raString: string; decString: string }> = [];
 
       for (const node of lists) {
         const targetName = node.getAttribute('TargetName')?.trim();
-        if (!targetName) continue;
-        const normalized = targetName.toLowerCase();
-        if (existingByName.has(normalized)) continue;
+        if (!targetName) {
+          diagnostics.skippedRows += 1;
+          continue;
+        }
+        const normalizedName = targetName.toLowerCase();
+        if (existingByName.has(normalizedName)) continue;
 
         const coords = node.getElementsByTagName('Coordinates')[0];
         const raText = coords?.getElementsByTagName('RA')[0]?.textContent?.trim() ?? '';
         const decText = coords?.getElementsByTagName('Dec')[0]?.textContent?.trim() ?? '';
         const raHours = Number(raText);
         const decDeg = Number(decText);
-        if (!Number.isFinite(raHours) || !Number.isFinite(decDeg)) continue;
+        if (!Number.isFinite(raHours) || !Number.isFinite(decDeg)) {
+          diagnostics.unmatchedTargets.push(targetName);
+          diagnostics.skippedRows += 1;
+          continue;
+        }
 
         const raDeg = raHours * 15;
         batch.push({
@@ -800,40 +907,55 @@ export function SessionPlanner() {
           raString: degreesToHMS(raDeg),
           decString: degreesToDMS(decDeg),
         });
-        existingByName.add(normalized);
+        diagnostics.createdTargets.push(targetName);
+        existingByName.add(normalizedName);
       }
 
       if (batch.length > 0) {
         addTargetsBatch(batch);
       }
 
-      return {
+      return finalizeDraft({
         planDate: planDate.toISOString(),
         strategy: 'balanced',
         constraints,
         excludedTargetIds: [],
         manualEdits: [],
         notes: '',
-      };
+      }, diagnostics);
     };
 
-    // Try structured imports first
-    const ninaDraft = parseNinaXml();
-    if (ninaDraft) return ninaDraft;
-    const csvDraft = parseSkyMapCsv();
-    if (csvDraft) return csvDraft;
+    const ninaResult = parseNinaXml();
+    if (ninaResult) return ninaResult;
+    const csvResult = parseSkyMapCsv();
+    if (csvResult) return csvResult;
 
-    // JSON import (SkyMap drafts/exports)
     try {
       const parsed = JSON.parse(rawContent) as unknown;
       if (!parsed || typeof parsed !== 'object') return null;
+      const diagnostics: ImportDiagnostics = {
+        format: 'json',
+        unmatchedTargets: [],
+        createdTargets: [],
+        skippedRows: 0,
+        warnings: [],
+      };
       const maybeDraft = parsed as Partial<SessionDraftV2> & {
         draft?: SessionDraftV2;
         targets?: Array<{ name: string; startTime?: string; endTime?: string }>;
       };
-      if (maybeDraft.draft) return maybeDraft.draft;
-      if (maybeDraft.constraints && maybeDraft.planDate && maybeDraft.strategy && Array.isArray(maybeDraft.manualEdits)) {
-        return {
+
+      if (maybeDraft.draft) {
+        return finalizeDraft(maybeDraft.draft, diagnostics);
+      }
+
+      if (
+        maybeDraft.constraints
+        && maybeDraft.planDate
+        && maybeDraft.strategy
+        && Array.isArray(maybeDraft.manualEdits)
+      ) {
+        return finalizeDraft({
           planDate: maybeDraft.planDate,
           strategy: maybeDraft.strategy,
           constraints: maybeDraft.constraints,
@@ -842,37 +964,46 @@ export function SessionPlanner() {
           notes: maybeDraft.notes,
           weatherSnapshot: maybeDraft.weatherSnapshot,
           exportMeta: maybeDraft.exportMeta,
-        };
+        }, diagnostics);
       }
-      if (maybeDraft.planDate && Array.isArray(maybeDraft.targets)) {
-        const targetByName = new Map(
-          activeTargets.map((target) => [target.name.trim().toLowerCase(), target.id]),
-        );
-        const edits = maybeDraft.targets
-          .map((target) => {
-            const targetId = targetByName.get(target.name.trim().toLowerCase());
-            if (!targetId || !target.startTime || !target.endTime) return null;
-            const start = new Date(target.startTime);
-            const end = new Date(target.endTime);
-            const durationMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
-            return {
-              targetId,
-              startTime: start.toTimeString().slice(0, 5),
-              endTime: end.toTimeString().slice(0, 5),
-              durationMinutes,
-              locked: true,
-            };
-          })
-          .filter((edit): edit is NonNullable<typeof edit> => Boolean(edit));
 
-        return {
+      if (maybeDraft.planDate && Array.isArray(maybeDraft.targets)) {
+        const edits: ManualScheduleItem[] = [];
+        for (const target of maybeDraft.targets) {
+          const targetName = target.name?.trim();
+          if (!targetName || !target.startTime || !target.endTime) {
+            diagnostics.skippedRows += 1;
+            continue;
+          }
+          const targetId = targetByName.get(targetName.toLowerCase());
+          if (!targetId) {
+            diagnostics.unmatchedTargets.push(targetName);
+            diagnostics.skippedRows += 1;
+            continue;
+          }
+          const start = new Date(target.startTime);
+          const end = new Date(target.endTime);
+          if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+            diagnostics.skippedRows += 1;
+            continue;
+          }
+          edits.push({
+            targetId,
+            startTime: start.toTimeString().slice(0, 5),
+            endTime: end.toTimeString().slice(0, 5),
+            durationMinutes: Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)),
+            locked: true,
+          });
+        }
+
+        return finalizeDraft({
           planDate: maybeDraft.planDate,
           strategy: 'balanced',
           constraints,
           excludedTargetIds: [],
           manualEdits: edits,
           notes: '',
-        };
+        }, diagnostics);
       }
       return null;
     } catch {
@@ -886,28 +1017,88 @@ export function SessionPlanner() {
     void loadTauriTemplates();
   }, [loadTauriTemplates, open, refreshWeatherAndSafety]);
   
+  const knownTargetIds = useMemo(
+    () => new Set(activeTargets.map((target) => target.id)),
+    [activeTargets],
+  );
+
+  const plannerDraftValidation = useMemo(() => validateSessionDraft({
+    planDate: planDate.toISOString(),
+    strategy,
+    constraints,
+    excludedTargetIds: Array.from(excludedIds),
+    manualEdits: Object.values(manualEdits),
+    notes: sessionNotes,
+    weatherSnapshot,
+  }, {
+    fallbackDate: planDate,
+    knownTargetIds,
+  }), [
+    constraints,
+    excludedIds,
+    knownTargetIds,
+    manualEdits,
+    planDate,
+    sessionNotes,
+    strategy,
+    weatherSnapshot,
+  ]);
+
+  const normalizedDraft = plannerDraftValidation.draft;
+  const normalizedExcludedIds = useMemo(
+    () => new Set(normalizedDraft.excludedTargetIds),
+    [normalizedDraft.excludedTargetIds],
+  );
   const manualOverrides = useMemo(
-    () => Object.values(manualEdits).filter((edit) => planningMode === 'manual' || Boolean(edit.locked)),
-    [manualEdits, planningMode],
+    () => normalizedDraft.manualEdits.filter((edit) => planningMode === 'manual' || Boolean(edit.locked)),
+    [normalizedDraft.manualEdits, planningMode],
   );
 
   // Generate optimized plan
-  const plan = useMemo(
-    () => optimizeScheduleV2(
+  const plan = useMemo(() => {
+    if (plannerDraftValidation.blockingIssues.length > 0) {
+      return {
+        targets: [],
+        totalImagingTime: 0,
+        nightCoverage: 0,
+        efficiency: 0,
+        gaps: [],
+        recommendations: [],
+        warnings: plannerDraftValidation.warningIssues.map((issue) => ({ key: issue.code })),
+        conflicts: plannerDraftValidation.blockingIssues.map(issueToConflict),
+        weatherSnapshot,
+      } as SessionPlanV2;
+    }
+
+    return optimizeScheduleV2(
       activeTargets,
       latitude,
       longitude,
       twilight,
       strategy,
-      constraints,
+      normalizedDraft.constraints,
       planDate,
-      excludedIds,
+      normalizedExcludedIds,
       manualOverrides,
-      weatherSnapshot,
+      normalizedDraft.weatherSnapshot ?? weatherSnapshot,
       { mountSafetyConfig },
-    ),
-    [activeTargets, latitude, longitude, twilight, strategy, constraints, planDate, excludedIds, manualOverrides, weatherSnapshot, mountSafetyConfig]
-  );
+    );
+  }, [
+    activeTargets,
+    latitude,
+    longitude,
+    manualOverrides,
+    mountSafetyConfig,
+    normalizedDraft.constraints,
+    normalizedDraft.weatherSnapshot,
+    normalizedExcludedIds,
+    planDate,
+    plannerDraftValidation.blockingIssues,
+    plannerDraftValidation.warningIssues,
+    strategy,
+    twilight,
+    weatherSnapshot,
+  ]);
 
   useEffect(() => {
     setManualOrder((previous) => {
@@ -1001,17 +1192,35 @@ export function SessionPlanner() {
   
   const handleSavePlan = useCallback(() => {
     if (displayedPlan.targets.length === 0) return null;
+    const validation = validateSessionDraft({
+      planDate: planDate.toISOString(),
+      strategy,
+      constraints,
+      excludedTargetIds: Array.from(excludedIds),
+      manualEdits: Object.values(manualEdits),
+      notes: sessionNotes,
+      weatherSnapshot,
+    }, {
+      fallbackDate: planDate,
+      knownTargetIds,
+    });
+    if (validation.blockingIssues.length > 0) {
+      toast.error(validation.blockingIssues[0]?.message ?? t('sessionPlanner.importFailed'));
+      return null;
+    }
+
+    const normalizedDraft = validation.draft;
     const dateStr = planDate.toLocaleDateString();
     const savedPlanId = savePlan({
       name: `${t('sessionPlanner.title')} - ${dateStr}`,
-      planDate: planDate.toISOString(),
+      planDate: normalizedDraft.planDate,
       latitude,
       longitude,
-      strategy,
-      minAltitude,
-      minImagingTime,
-      constraints,
-      planningMode,
+      strategy: normalizedDraft.strategy,
+      minAltitude: normalizedDraft.constraints.minAltitude,
+      minImagingTime: normalizedDraft.constraints.minImagingTime,
+      constraints: normalizedDraft.constraints,
+      planningMode: normalizedDraft.manualEdits.length > 0 ? planningMode : 'auto',
       targets: displayedPlan.targets.map(s => ({
         targetId: s.target.id,
         targetName: s.target.name,
@@ -1025,23 +1234,55 @@ export function SessionPlanner() {
         feasibilityScore: s.feasibility.score,
         order: s.order,
       })),
-      excludedTargetIds: Array.from(excludedIds),
+      excludedTargetIds: normalizedDraft.excludedTargetIds,
       totalImagingTime: displayedPlan.totalImagingTime,
       nightCoverage: displayedPlan.nightCoverage,
       efficiency: displayedPlan.efficiency,
-      notes: sessionNotes,
-      weatherSnapshot,
-      manualEdits: Object.values(manualEdits),
+      notes: normalizedDraft.notes,
+      weatherSnapshot: normalizedDraft.weatherSnapshot,
+      manualEdits: normalizedDraft.manualEdits,
     });
+
+    if (validation.warningIssues.length > 0) {
+      toast.warning(validation.warningIssues[0].message);
+    }
     toast.success(t('sessionPlanner.planSaved'));
     return savedPlanId;
-  }, [constraints, displayedPlan, excludedIds, latitude, longitude, manualEdits, minAltitude, minImagingTime, planDate, planningMode, savePlan, sessionNotes, strategy, t, weatherSnapshot]);
+  }, [
+    constraints,
+    displayedPlan,
+    excludedIds,
+    knownTargetIds,
+    latitude,
+    longitude,
+    manualEdits,
+    planDate,
+    planningMode,
+    savePlan,
+    sessionNotes,
+    strategy,
+    t,
+    weatherSnapshot,
+  ]);
 
   const handleStartExecution = useCallback(async () => {
     if (displayedPlan.targets.length === 0) return;
 
     const savedPlanId = handleSavePlan();
     if (!savedPlanId) return;
+
+    const normalizedDraft = normalizeSessionDraft({
+      planDate: planDate.toISOString(),
+      strategy,
+      constraints,
+      excludedTargetIds: Array.from(excludedIds),
+      manualEdits: Object.values(manualEdits),
+      notes: sessionNotes,
+      weatherSnapshot,
+    }, {
+      fallbackDate: planDate,
+      knownTargetIds,
+    });
 
     const dateStr = planDate.toLocaleDateString();
     const planName = `${t('sessionPlanner.title')} - ${dateStr}`;
@@ -1063,8 +1304,8 @@ export function SessionPlanner() {
           planDate: planDate.toISOString().slice(0, 10),
           sourcePlanId: savedPlanId,
           sourcePlanName: planName,
-          notes: sessionNotes || undefined,
-          weatherSnapshot,
+          notes: normalizedDraft.notes || undefined,
+          weatherSnapshot: normalizedDraft.weatherSnapshot,
           executionTargets,
         });
         syncExecutionFromObservationSession(session);
@@ -1077,11 +1318,11 @@ export function SessionPlanner() {
           planDate: planDate.toISOString(),
           latitude,
           longitude,
-          strategy,
-          minAltitude,
-          minImagingTime,
-          constraints,
-          planningMode,
+          strategy: normalizedDraft.strategy,
+          minAltitude: normalizedDraft.constraints.minAltitude,
+          minImagingTime: normalizedDraft.constraints.minImagingTime,
+          constraints: normalizedDraft.constraints,
+          planningMode: normalizedDraft.manualEdits.length > 0 ? planningMode : 'auto',
           targets: displayedPlan.targets.map((target) => ({
             targetId: target.target.id,
             targetName: target.target.name,
@@ -1095,13 +1336,13 @@ export function SessionPlanner() {
             feasibilityScore: target.feasibility.score,
             order: target.order,
           })),
-          excludedTargetIds: Array.from(excludedIds),
+          excludedTargetIds: normalizedDraft.excludedTargetIds,
           totalImagingTime: displayedPlan.totalImagingTime,
           nightCoverage: displayedPlan.nightCoverage,
           efficiency: displayedPlan.efficiency,
-          notes: sessionNotes || undefined,
-          weatherSnapshot,
-          manualEdits: Object.values(manualEdits),
+          notes: normalizedDraft.notes || undefined,
+          weatherSnapshot: normalizedDraft.weatherSnapshot,
+          manualEdits: normalizedDraft.manualEdits,
         }, {
           status: 'active',
         });
@@ -1120,10 +1361,9 @@ export function SessionPlanner() {
     latitude,
     longitude,
     manualEdits,
-    minAltitude,
-    minImagingTime,
     planDate,
     planningMode,
+    knownTargetIds,
     sessionNotes,
     strategy,
     syncExecutionFromObservationSession,
@@ -1137,8 +1377,44 @@ export function SessionPlanner() {
     toast.success(t('sessionPlanner.executionResumed'));
   }, [relatedExecution, setActiveExecution, t]);
 
+  const handleReplanRemaining = useCallback(() => {
+    if (!relatedExecution) return;
+
+    const preserved = new Map<string, ManualScheduleItem>();
+    for (const target of relatedExecution.targets) {
+      if (!['completed', 'skipped', 'failed'].includes(target.status)) continue;
+      const start = new Date(target.scheduledStart);
+      const end = new Date(target.scheduledEnd);
+      if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) continue;
+      preserved.set(target.targetId, {
+        targetId: target.targetId,
+        startTime: start.toTimeString().slice(0, 5),
+        endTime: end.toTimeString().slice(0, 5),
+        durationMinutes: Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)),
+        locked: true,
+        reason: 'preserved-from-execution',
+      });
+    }
+
+    for (const edit of Object.values(manualEdits)) {
+      if (!edit.locked) continue;
+      preserved.set(edit.targetId, {
+        ...edit,
+        locked: true,
+      });
+    }
+
+    const nextEdits: Record<string, ManualScheduleItem> = {};
+    for (const [targetId, edit] of preserved.entries()) {
+      nextEdits[targetId] = edit;
+    }
+    setManualEdits(nextEdits);
+    setPlanningMode('auto');
+    toast.success(t('sessionPlanner.replanApplied'));
+  }, [manualEdits, relatedExecution, t]);
+
   const handleSaveTemplate = useCallback(() => {
-    const draft: SessionDraftV2 = {
+    const validation = validateSessionDraft({
       planDate: planDate.toISOString(),
       strategy,
       constraints,
@@ -1146,7 +1422,15 @@ export function SessionPlanner() {
       manualEdits: Object.values(manualEdits),
       notes: sessionNotes,
       weatherSnapshot,
-    };
+    }, {
+      fallbackDate: planDate,
+      knownTargetIds,
+    });
+    if (validation.blockingIssues.length > 0) {
+      toast.error(validation.blockingIssues[0]?.message ?? t('sessionPlanner.templateSaveFailed'));
+      return;
+    }
+    const draft = validation.draft;
     const templateName = `${t('sessionPlanner.templatePrefix')} ${new Date().toLocaleTimeString()}`;
     saveTemplate({
       name: templateName,
@@ -1172,8 +1456,22 @@ export function SessionPlanner() {
           toast.error(t('sessionPlanner.templateSaveFailed'));
         });
     }
+    if (validation.warningIssues.length > 0) {
+      toast.warning(validation.warningIssues[0].message);
+    }
     toast.success(t('sessionPlanner.templateSaved'));
-  }, [constraints, excludedIds, manualEdits, planDate, saveTemplate, sessionNotes, strategy, t, weatherSnapshot]);
+  }, [
+    constraints,
+    excludedIds,
+    knownTargetIds,
+    manualEdits,
+    planDate,
+    saveTemplate,
+    sessionNotes,
+    strategy,
+    t,
+    weatherSnapshot,
+  ]);
 
   const handleLoadTemplate = useCallback((templateId: string) => {
     const template = availableTemplates.find((item) => item.id === templateId) ?? loadTemplate(templateId);
@@ -1184,58 +1482,27 @@ export function SessionPlanner() {
   }, [applyDraft, availableTemplates, loadTemplate, t]);
   
   const handleLoadPlan = useCallback((saved: SavedSessionPlan) => {
-    const savedConstraints = saved.constraints ?? {
-      minAltitude: saved.minAltitude,
-      minImagingTime: saved.minImagingTime,
-      minMoonDistance: 20,
-      useExposurePlanDuration: true,
-      weatherLimits: {
-        maxCloudCover: 70,
-        maxHumidity: 90,
-        maxWindSpeed: 25,
+    const report = validateSessionDraft({
+      planDate: saved.planDate,
+      strategy: saved.strategy,
+      constraints: saved.constraints ?? {
+        minAltitude: saved.minAltitude,
+        minImagingTime: saved.minImagingTime,
       },
-      safetyLimits: {
-        enforceMountSafety: false,
-        avoidMeridianFlipWindow: false,
-      },
-    };
-
-    setPlanDate(new Date(saved.planDate));
-    setStrategy(saved.strategy);
-    setMinAltitude(savedConstraints.minAltitude);
-    setMinImagingTime(savedConstraints.minImagingTime);
-    setMinMoonDistance(savedConstraints.minMoonDistance ?? 20);
-    setUseExposurePlanDuration(savedConstraints.useExposurePlanDuration ?? true);
-    setSessionWindowStartTime(savedConstraints.sessionWindow?.startTime ?? '');
-    setSessionWindowEndTime(savedConstraints.sessionWindow?.endTime ?? '');
-    const nextEnforceMountSafety = Boolean(savedConstraints.safetyLimits?.enforceMountSafety);
-    setEnforceMountSafety(nextEnforceMountSafety);
-    setAvoidMeridianFlipWindow(
-      nextEnforceMountSafety && Boolean(savedConstraints.safetyLimits?.avoidMeridianFlipWindow),
-    );
-    setSessionNotes(saved.notes ?? '');
-    if (saved.weatherSnapshot) {
-      setWeatherInput({
-        cloudCover: saved.weatherSnapshot.cloudCover,
-        humidity: saved.weatherSnapshot.humidity,
-        windSpeed: saved.weatherSnapshot.windSpeed,
-        dewPoint: saved.weatherSnapshot.dewPoint,
-      });
-    } else {
-      setWeatherInput({});
-    }
-    const nextEdits: Record<string, ManualScheduleItem> = {};
-    saved.manualEdits?.forEach((edit) => {
-      nextEdits[edit.targetId] = edit;
+      excludedTargetIds: saved.excludedTargetIds,
+      manualEdits: saved.manualEdits ?? [],
+      notes: saved.notes,
+      weatherSnapshot: saved.weatherSnapshot,
+    }, {
+      fallbackDate: new Date(saved.planDate),
+      knownTargetIds: new Set(activeTargets.map((target) => target.id)),
     });
-    setManualEdits(nextEdits);
-    setPlanningMode(saved.planningMode ?? (saved.manualEdits && saved.manualEdits.length > 0 ? 'manual' : 'auto'));
-    // Filter out stale exclusion IDs that no longer match current targets
-    const currentTargetIds = new Set(activeTargets.map(t => t.id));
-    const validExcluded = saved.excludedTargetIds.filter(id => currentTargetIds.has(id));
-    setExcludedIds(new Set(validExcluded));
+    applyDraft(report.draft);
+    if (report.warningIssues.length > 0) {
+      toast.warning(report.warningIssues[0].message);
+    }
     setShowSavedPlans(false);
-  }, [activeTargets]);
+  }, [activeTargets, applyDraft]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -1279,11 +1546,14 @@ export function SessionPlanner() {
   }, [updateManualEdit]);
 
   const handleExportPlan = useCallback(async (format: 'text' | 'markdown' | 'json' | 'nina-xml' | 'csv' | 'sgp-csv') => {
+    const dateStr = planDate.toLocaleDateString();
     const exported = exportSessionPlan(displayedPlan, {
       format,
       planDate,
       latitude,
       longitude,
+      sourcePlanId: relatedSavedPlan?.id,
+      sourcePlanName: relatedSavedPlan?.name ?? `${t('sessionPlanner.title')} - ${dateStr}`,
     });
 
     if (isTauri()) {
@@ -1298,7 +1568,7 @@ export function SessionPlanner() {
 
     await navigator.clipboard.writeText(exported);
     toast.success(t('sessionPlanner.planCopied'));
-  }, [displayedPlan, planDate, latitude, longitude, t]);
+  }, [displayedPlan, planDate, latitude, longitude, relatedSavedPlan, t]);
 
   const handleImportPlan = useCallback(async () => {
     if (!isTauri()) {
@@ -1307,13 +1577,30 @@ export function SessionPlanner() {
     }
     try {
       const content = await tauriApi.sessionIo.importSessionPlan();
-      const draft = parseImportedDraft(content);
-      if (!draft) {
+      const parsed = parseImportedDraft(content);
+      if (!parsed) {
         toast.error(t('sessionPlanner.importFailed'));
         return;
       }
+      const { draft, diagnostics } = parsed;
       importPlanV2(draft);
       applyDraft(draft);
+      const details: string[] = [];
+      if (diagnostics.unmatchedTargets.length > 0) {
+        details.push(`unmatched: ${diagnostics.unmatchedTargets.length}`);
+      }
+      if (diagnostics.createdTargets.length > 0) {
+        details.push(`created: ${diagnostics.createdTargets.length}`);
+      }
+      if (diagnostics.skippedRows > 0) {
+        details.push(`skipped rows: ${diagnostics.skippedRows}`);
+      }
+      if (details.length > 0) {
+        toast.warning(`Import diagnostics (${diagnostics.format}): ${details.join(', ')}`);
+      }
+      if (diagnostics.warnings.length > 0) {
+        toast.warning(diagnostics.warnings[0]);
+      }
       toast.success(t('sessionPlanner.importSuccess'));
     } catch {
       toast.error(t('sessionPlanner.importFailed'));
@@ -1328,20 +1615,22 @@ export function SessionPlanner() {
   
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DialogTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <CalendarClock className="h-4 w-4" />
-            </Button>
-          </DialogTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{t('sessionPlanner.title')}</p>
-        </TooltipContent>
-      </Tooltip>
+      {showTrigger && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-9 w-9">
+                <CalendarClock className="h-4 w-4" />
+              </Button>
+            </DialogTrigger>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('sessionPlanner.title')}</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
       
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[90vh] max-h-[90dvh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarClock className="h-5 w-5 text-primary" />
@@ -1923,10 +2212,16 @@ export function SessionPlanner() {
               <TooltipContent>{t('sessionPlanner.savePlanTooltip')}</TooltipContent>
             </Tooltip>
             {relatedExecution ? (
-              <Button variant="secondary" size="sm" onClick={handleContinueExecution}>
-                <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
-                {t('sessionPlanner.continueExecution')}
-              </Button>
+              <>
+                <Button variant="secondary" size="sm" onClick={handleContinueExecution}>
+                  <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
+                  {t('sessionPlanner.continueExecution')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleReplanRemaining}>
+                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                  {t('sessionPlanner.replanRemaining')}
+                </Button>
+              </>
             ) : (
               <Button
                 variant="secondary"

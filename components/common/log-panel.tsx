@@ -57,7 +57,7 @@ export function LogPanel({ shortcut = 'ctrl+shift+l' }: LogPanelProps) {
   
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && close()}>
-      <SheetContent side="bottom" className="h-[60vh] flex flex-col p-0">
+      <SheetContent side="bottom" className="h-[60vh] h-[60dvh] flex flex-col p-0">
         <SheetHeader className="px-4 py-3 border-b flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

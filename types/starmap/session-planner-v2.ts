@@ -66,6 +66,7 @@ export type SessionConflictType =
 export interface SessionConflict {
   type: SessionConflictType;
   targetId: string;
+  reasonCode?: string;
   message: string;
 }
 

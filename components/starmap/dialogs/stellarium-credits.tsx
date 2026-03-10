@@ -4,7 +4,14 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronRight } from 'lucide-react';
 import { StellariumIcon } from '@/components/icons';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
@@ -14,8 +21,72 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
 import type { StellariumCreditsProps } from '@/types/stellarium-credits';
+import { STARMAP_DIALOG_SCROLL_BODY_CLASS } from './dialog-layout';
+
+interface CreditEntry {
+  labelKey?: string;
+  descriptionKey: string;
+}
+
+interface CreditSection {
+  id: string;
+  titleKey: string;
+  descriptionKey?: string;
+  entries?: CreditEntry[];
+}
+
+const CREDIT_SECTIONS: CreditSection[] = [
+  {
+    id: 'stars',
+    titleKey: 'credits.stars',
+    descriptionKey: 'credits.starsDescription',
+    entries: [
+      { labelKey: 'credits.gaiaLabel', descriptionKey: 'credits.gaiaDescription' },
+      { labelKey: 'credits.hipparcosLabel', descriptionKey: 'credits.hipparcosDescription' },
+      { labelKey: 'credits.brightStarsLabel', descriptionKey: 'credits.brightStarsDescription' },
+    ],
+  },
+  {
+    id: 'dso',
+    titleKey: 'credits.deepSkyObjects',
+    descriptionKey: 'credits.dsoDescription',
+    entries: [
+      { labelKey: 'credits.hyperledaLabel', descriptionKey: 'credits.hyperledaDescription' },
+      { labelKey: 'credits.simbadLabel', descriptionKey: 'credits.simbadDescription' },
+      { labelKey: 'credits.openNgcLabel', descriptionKey: 'credits.openNgcDescription' },
+      { descriptionKey: 'credits.caldwellDescription' },
+    ],
+  },
+  {
+    id: 'background',
+    titleKey: 'credits.backgroundImage',
+    descriptionKey: 'credits.dssDescription',
+    entries: [
+      { descriptionKey: 'credits.dssDetails1' },
+      { descriptionKey: 'credits.dssDetails2' },
+    ],
+  },
+  {
+    id: 'planet-textures',
+    titleKey: 'credits.planetTextures',
+    descriptionKey: 'credits.planetTexturesDescription',
+    entries: [{ descriptionKey: 'credits.planetTexturesSource' }],
+  },
+  {
+    id: 'minor-planets',
+    titleKey: 'credits.minorPlanets',
+    descriptionKey: 'credits.minorPlanetsDescription',
+  },
+  {
+    id: 'others',
+    titleKey: 'credits.others',
+    entries: [
+      { descriptionKey: 'credits.landscapeImages' },
+      { descriptionKey: 'credits.constellationLines' },
+    ],
+  },
+];
 
 export function StellariumCredits({ trigger }: StellariumCreditsProps) {
   const t = useTranslations();
@@ -51,78 +122,53 @@ export function StellariumCredits({ trigger }: StellariumCreditsProps) {
             {t('credits.starsDescription')}
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[60vh] pr-4">
-          <div className="space-y-4 text-sm">
-            <section>
-              <h3 className="font-semibold text-lg mb-2">{t('credits.stars')}</h3>
-              <p className="mb-2">{t('credits.starsDescription')}</p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>
-                  <strong>{t('credits.gaiaLabel')}:</strong> {t('credits.gaiaDescription')}
-                </li>
-                <li>
-                  <strong>{t('credits.hipparcosLabel')}:</strong> {t('credits.hipparcosDescription')}
-                </li>
-                <li>
-                  <strong>{t('credits.brightStarsLabel')}:</strong> {t('credits.brightStarsDescription')}
-                </li>
-              </ul>
-            </section>
+        <ScrollArea className={`${STARMAP_DIALOG_SCROLL_BODY_CLASS} pr-4`}>
+          <div className="space-y-4 pb-1">
+            <Card className="gap-3 bg-muted/20 py-4">
+              <CardHeader className="px-4 pb-0">
+                <CardTitle className="text-sm">{t('credits.dataCredits')}</CardTitle>
+                <CardDescription>
+                  {t('credits.starsDescription')}
+                </CardDescription>
+              </CardHeader>
+            </Card>
 
-            <Separator />
-
-            <section>
-              <h3 className="font-semibold text-lg mb-2">{t('credits.deepSkyObjects')}</h3>
-              <p className="mb-2">{t('credits.dsoDescription')}</p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>
-                  <strong>{t('credits.hyperledaLabel')}:</strong> {t('credits.hyperledaDescription')}
-                </li>
-                <li>
-                  <strong>{t('credits.simbadLabel')}:</strong> {t('credits.simbadDescription')}
-                </li>
-                <li>
-                  <strong>{t('credits.openNgcLabel')}:</strong> {t('credits.openNgcDescription')}
-                </li>
-                <li>{t('credits.caldwellDescription')}</li>
-              </ul>
-            </section>
-
-            <Separator />
-
-            <section>
-              <h3 className="font-semibold text-lg mb-2">{t('credits.backgroundImage')}</h3>
-              <p className="mb-2">{t('credits.dssDescription')}</p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>{t('credits.dssDetails1')}</li>
-                <li>{t('credits.dssDetails2')}</li>
-              </ul>
-            </section>
-
-            <Separator />
-
-            <section>
-              <h3 className="font-semibold text-lg mb-2">{t('credits.planetTextures')}</h3>
-              <p className="mb-2">{t('credits.planetTexturesDescription')}</p>
-              <p>{t('credits.planetTexturesSource')}</p>
-            </section>
-
-            <Separator />
-
-            <section>
-              <h3 className="font-semibold text-lg mb-2">{t('credits.minorPlanets')}</h3>
-              <p>{t('credits.minorPlanetsDescription')}</p>
-            </section>
-
-            <Separator />
-
-            <section>
-              <h3 className="font-semibold text-lg mb-2">{t('credits.others')}</h3>
-              <ul className="list-disc pl-5">
-                <li>{t('credits.landscapeImages')}</li>
-                <li>{t('credits.constellationLines')}</li>
-              </ul>
-            </section>
+            <Accordion type="multiple" defaultValue={['stars']} className="space-y-2">
+              {CREDIT_SECTIONS.map((section) => (
+                <AccordionItem
+                  key={section.id}
+                  value={section.id}
+                  className="rounded-lg border px-4"
+                >
+                  <AccordionTrigger className="py-3 text-sm hover:no-underline">
+                    {t(section.titleKey)}
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-2">
+                    {section.descriptionKey ? (
+                      <p className="text-sm text-muted-foreground">
+                        {t(section.descriptionKey)}
+                      </p>
+                    ) : null}
+                    {section.entries?.length ? (
+                      <ul className="list-disc space-y-1 pl-5 text-sm">
+                        {section.entries.map((entry) => (
+                          <li key={`${section.id}-${entry.descriptionKey}`}>
+                            {entry.labelKey ? (
+                              <>
+                                <strong>{t(entry.labelKey)}:</strong>{' '}
+                                {t(entry.descriptionKey)}
+                              </>
+                            ) : (
+                              t(entry.descriptionKey)
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
           </div>
         </ScrollArea>
       </DialogContent>

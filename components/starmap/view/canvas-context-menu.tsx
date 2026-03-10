@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Copy,
@@ -157,6 +157,36 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     onOpenChange(false);
   }, [coords, onSetPendingMarkerCoords, onOpenChange]);
 
+  // Keep server/client initial render consistent to avoid hydration mismatch,
+  // then recompute from runtime viewport/safe-area after hydration.
+  const isHydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+
+  const triggerPosition = useMemo(() => {
+    if (!isHydrated || typeof window === 'undefined') {
+      return position;
+    }
+
+    const rootStyles = window.getComputedStyle(document.documentElement);
+    const safeAreaTop = Number.parseFloat(rootStyles.getPropertyValue('--safe-area-top')) || 0;
+    const safeAreaBottom = Number.parseFloat(rootStyles.getPropertyValue('--safe-area-bottom')) || 0;
+    const safeAreaLeft = Number.parseFloat(rootStyles.getPropertyValue('--safe-area-left')) || 0;
+    const safeAreaRight = Number.parseFloat(rootStyles.getPropertyValue('--safe-area-right')) || 0;
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const minX = safeAreaLeft + 8;
+    const minY = safeAreaTop + 8;
+    const maxX = Math.max(minX, viewportWidth - safeAreaRight - 8);
+    const maxY = Math.max(minY, viewportHeight - safeAreaBottom - 8);
+    return {
+      x: Math.min(Math.max(position.x, minX), maxX),
+      y: Math.min(Math.max(position.y, minY), maxY),
+    };
+  }, [isHydrated, position]);
+
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       {/* Invisible trigger positioned at click location */}
@@ -164,13 +194,13 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
         <div
           className="fixed w-0 h-0 pointer-events-none"
           style={{
-            left: position.x,
-            top: position.y,
+            left: triggerPosition.x,
+            top: triggerPosition.y,
           }}
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        className="w-64 bg-card border-border max-h-[80vh] overflow-y-auto"
+        className="w-64 bg-card border-border max-h-[calc(80vh-var(--safe-area-top)-var(--safe-area-bottom))] max-h-[calc(80dvh-var(--safe-area-top)-var(--safe-area-bottom))] overflow-y-auto"
         align="start"
         collisionPadding={8}
       >

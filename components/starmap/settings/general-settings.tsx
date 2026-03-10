@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useDailyKnowledgeStore, useSettingsStore } from '@/lib/stores';
+import { useDailyKnowledgeStore } from '@/lib/stores';
 import type {
   AppLocale,
   TimeFormat,
@@ -30,20 +30,17 @@ import type {
   TemperatureUnit,
   StartupView,
 } from '@/lib/stores/settings-store';
-import { useLocaleStore } from '@/lib/i18n/locale-store';
+import { usePreferencesDraftModel } from '@/lib/hooks/use-settings-draft';
 import { SettingsSection, ToggleItem } from './settings-shared';
 
 export function GeneralSettings() {
   const t = useTranslations();
 
-  const preferences = useSettingsStore((state) => state.preferences);
-  const setPreference = useSettingsStore((state) => state.setPreference);
-  const setLocale = useLocaleStore((state) => state.setLocale);
+  const { preferences, setPreference } = usePreferencesDraftModel();
   const openDailyKnowledge = useDailyKnowledgeStore((state) => state.openDialog);
 
   const handleLocaleChange = (locale: AppLocale) => {
     setPreference('locale', locale);
-    setLocale(locale);
   };
 
   return (

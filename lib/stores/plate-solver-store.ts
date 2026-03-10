@@ -6,6 +6,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createLogger } from '@/lib/logger';
+import {
+  createInitialOnlineSolveSessionState,
+  type OnlineSolveSessionState,
+} from '@/lib/plate-solving/online-solve-contract';
 import type {
   SolverType,
   SolverInfo,
@@ -74,6 +78,7 @@ export interface PlateSolverState {
   
   // Online solve progress
   onlineSolveProgress: OnlineSolveProgress | null;
+  onlineSession: OnlineSolveSessionState;
   
   // Solve history
   solveHistory: SolveHistoryEntry[];
@@ -93,6 +98,7 @@ export interface PlateSolverState {
   loadAstapDatabases: () => Promise<void>;
   analyseImage: (imagePath: string, snrMinimum?: number) => Promise<void>;
   setOnlineSolveProgress: (progress: OnlineSolveProgress | null) => void;
+  setOnlineSession: (session: OnlineSolveSessionState | null) => void;
   clearImageAnalysis: () => void;
   addToHistory: (entry: Omit<SolveHistoryEntry, 'id' | 'timestamp'>) => void;
   clearHistory: () => void;
@@ -122,6 +128,7 @@ const initialState = {
   imageAnalysis: null as ImageAnalysisResult | null,
   isAnalysingImage: false,
   onlineSolveProgress: null as OnlineSolveProgress | null,
+  onlineSession: createInitialOnlineSolveSessionState(),
   solveHistory: [] as SolveHistoryEntry[],
 };
 
@@ -258,6 +265,10 @@ export const usePlateSolverStore = create<PlateSolverState>()(
         set({ onlineSolveProgress: progress });
       },
 
+      setOnlineSession: (session) => {
+        set({ onlineSession: session ?? createInitialOnlineSolveSessionState() });
+      },
+
       clearImageAnalysis: () => {
         set({ imageAnalysis: null });
       },
@@ -286,6 +297,7 @@ export const usePlateSolverStore = create<PlateSolverState>()(
           lastResult: null,
           imageAnalysis: null,
           onlineSolveProgress: null,
+          onlineSession: createInitialOnlineSolveSessionState(),
         });
       },
     }),
@@ -326,3 +338,6 @@ export const selectCanSolve = (state: PlateSolverState): boolean => {
   }
   return selectIsLocalSolverAvailable(state);
 };
+
+export const selectOnlineSession = (state: PlateSolverState): OnlineSolveSessionState =>
+  state.onlineSession;

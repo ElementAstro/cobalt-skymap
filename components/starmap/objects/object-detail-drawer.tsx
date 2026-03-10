@@ -49,6 +49,11 @@ import {
 } from '@/lib/services/object-info-service';
 import { cn } from '@/lib/utils';
 import { getObjectTypeIcon, getObjectTypeColor, getObjectTypeBadgeColor, getFeasibilityColor } from '@/lib/astronomy/object-type-utils';
+import {
+  buildTargetDisplayModel,
+  getAltitudeStateTextClass,
+  getMoonInterferenceTextClass,
+} from '@/lib/astronomy/target-display-model';
 import { createLogger } from '@/lib/logger';
 import type { ObjectDetailDrawerProps } from '@/types/starmap/objects';
 
@@ -179,11 +184,25 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
 
 
   const currentAstro = astroData;
-  const displayName = translatedName || selectedObject?.names[0] || t('common.unknown');
+  const displayModel = buildTargetDisplayModel({
+    selectedObject,
+    targetData: currentAstro,
+    objectInfo,
+    translatedPrimaryName: translatedName,
+    translatedSecondaryNames: selectedObject?.names.slice(1, 4) ?? [],
+  });
+  const identitySection = displayModel?.sections.identity;
+  const liveStatusSection = displayModel?.sections.liveStatus;
+  const planningSection = displayModel?.sections.planningMetrics;
+  const advancedMetadataSection = displayModel?.sections.advancedMetadata;
+  const displayName = identitySection?.primaryName || translatedName || selectedObject?.names[0] || t('common.unknown');
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[85vh] bg-background/95 backdrop-blur-md">
+      <DrawerContent
+        data-starmap-ui-control="true"
+        className="max-h-[85vh] max-h-[85dvh] bg-background/95 backdrop-blur-md"
+      >
         {/* Handle */}
         <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-muted" />
         
@@ -209,33 +228,33 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
           
           {/* Type Badge and Quick Stats */}
           <div className="flex flex-wrap items-center gap-2 mt-2">
-            {objectInfo && (
-              <Badge variant="outline" className={cn('text-xs', getObjectTypeBadgeColor(objectInfo.typeCategory))}>
-                {objectInfo.type}
+            {identitySection?.type && (
+              <Badge variant="outline" className={cn('text-xs', getObjectTypeBadgeColor(identitySection.type))}>
+                {identitySection.type}
               </Badge>
             )}
-            {objectInfo?.magnitude && (
+            {identitySection?.magnitude && (
               <Badge variant="outline" className="text-xs">
                 <Sun className="h-3 w-3 mr-1" />
-                {t('objectDetail.mag')} {objectInfo.magnitude.toFixed(1)}
+                {t('objectDetail.mag')} {identitySection.magnitude}
               </Badge>
             )}
-            {objectInfo?.angularSize && (
+            {identitySection?.size && (
               <Badge variant="outline" className="text-xs">
                 <Ruler className="h-3 w-3 mr-1" />
-                {objectInfo.angularSize}
+                {identitySection.size}
               </Badge>
             )}
-            {currentAstro && (
+            {planningSection && (
               <Badge 
                 variant="outline" 
                 className={cn(
                   'text-xs',
-                  getFeasibilityColor(currentAstro.feasibility.recommendation, 'full')
+                  getFeasibilityColor(planningSection.feasibility.recommendation, 'full')
                 )}
               >
                 <TrendingUp className="h-3 w-3 mr-1" />
-                {currentAstro.feasibility.score}/100
+                {planningSection.feasibilityScore}/100
               </Badge>
             )}
             {isEnhancing && (
@@ -281,7 +300,7 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
                 )}
 
                 {/* Coordinates */}
-                <div>
+                <div data-testid="object-drawer-section-identity">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-medium flex items-center gap-1.5">
                       <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -306,21 +325,22 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
                         <MapPin className="h-3.5 w-3.5" />
                         <span className="text-xs font-medium">{t('coordinates.ra')}</span>
                       </div>
-                      <p className="font-mono text-sm">{selectedObject?.ra}</p>
+                      <p className="font-mono text-sm">{identitySection?.coordinates.ra ?? selectedObject?.ra}</p>
                     </div>
                     <div className="rounded-lg bg-muted/30 p-3">
                       <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
                         <MapPin className="h-3.5 w-3.5" />
                         <span className="text-xs font-medium">{t('coordinates.dec')}</span>
                       </div>
-                      <p className="font-mono text-sm">{selectedObject?.dec}</p>
+                      <p className="font-mono text-sm">{identitySection?.coordinates.dec ?? selectedObject?.dec}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Current Position */}
-                {currentAstro && (
-                  <div className="grid grid-cols-2 gap-3">
+                {liveStatusSection && (
+                  <div data-testid="object-drawer-section-live-status" className="space-y-2">
+                    <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-lg bg-muted/30 p-3">
                       <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
                         <ArrowUp className="h-3.5 w-3.5" />
@@ -328,10 +348,9 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
                       </div>
                       <p className={cn(
                         'font-mono text-sm font-medium',
-                        currentAstro.altitude > 30 ? 'text-green-400' :
-                        currentAstro.altitude > 0 ? 'text-yellow-400' : 'text-red-400'
+                        getAltitudeStateTextClass(liveStatusSection.altitudeState)
                       )}>
-                        {currentAstro.altitude.toFixed(1)}°
+                        {liveStatusSection.altitude}
                       </p>
                     </div>
                     <div className="rounded-lg bg-muted/30 p-3">
@@ -339,7 +358,57 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
                         <Compass className="h-3.5 w-3.5" />
                         <span className="text-xs font-medium">{t('coordinates.az')}</span>
                       </div>
-                      <p className="font-mono text-sm">{currentAstro.azimuth.toFixed(1)}°</p>
+                      <p className="font-mono text-sm">{liveStatusSection.azimuth}</p>
+                    </div>
+                  </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="text-xs">
+                        {t(`objectDetail.altitudeState.${liveStatusSection.altitudeState}`)}
+                      </Badge>
+                      <Badge variant="outline" className={cn('text-xs', getMoonInterferenceTextClass(liveStatusSection.moonInterferenceLevel))}>
+                        {t(`objectDetail.moonInterference.${liveStatusSection.moonInterferenceLevel}`)}
+                      </Badge>
+                    </div>
+                  </div>
+                )}
+
+                {planningSection && (
+                  <div data-testid="object-drawer-section-planning-metrics" className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg bg-muted/30 p-3">
+                      <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+                        <Moon className="h-3.5 w-3.5 text-yellow-400/70" />
+                        <span className="text-xs font-medium">{t('session.moonDistance')}</span>
+                      </div>
+                      <p className={cn('font-mono text-sm font-medium', getMoonInterferenceTextClass(liveStatusSection?.moonInterferenceLevel ?? 'moderate'))}>
+                        {planningSection.moonDistance}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-muted/30 p-3">
+                      <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+                        <TrendingUp className="h-3.5 w-3.5 text-primary/70" />
+                        <span className="text-xs font-medium">{t('session.maxAltitude')}</span>
+                      </div>
+                      <p className="font-mono text-sm font-medium">{planningSection.maxAltitude}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <FeasibilityBadge feasibility={planningSection.feasibility} variant="inline" tooltipSide="top" className="p-2.5 rounded-lg bg-muted/30" />
+                    </div>
+                  </div>
+                )}
+
+                {advancedMetadataSection && (
+                  <div data-testid="object-drawer-section-advanced-metadata" className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">{t('objectDetail.frameTimeScale')}</span>
+                      <span className="font-mono">{advancedMetadataSection.frame} / {advancedMetadataSection.timeScale}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">{t('objectDetail.qualityEop')}</span>
+                      <span className="font-mono">{advancedMetadataSection.qualityFlag} / {advancedMetadataSection.dataFreshness}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {t('objectDetail.timestamp')}</span>
+                      <span className="font-mono">{advancedMetadataSection.updatedAt}</span>
                     </div>
                   </div>
                 )}
@@ -426,10 +495,10 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
 
               {/* Observation Tab */}
               <TabsContent value="observation" className="space-y-3 mt-0">
-                {currentAstro && (
+                {currentAstro && planningSection && (
                   <>
                     {/* Rise/Transit/Set */}
-                    <RiseTransitSetGrid visibility={currentAstro.visibility} variant="full" />
+                    <RiseTransitSetGrid visibility={planningSection.visibility} variant="full" />
 
                     {/* Moon Distance & Max Altitude */}
                     <div className="grid grid-cols-2 gap-2">
@@ -440,10 +509,9 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
                         </div>
                         <p className={cn(
                           'font-mono text-sm font-medium',
-                          currentAstro.moonDistance > 60 ? 'text-green-400' :
-                          currentAstro.moonDistance > 30 ? 'text-yellow-400' : 'text-orange-400'
+                          getMoonInterferenceTextClass(liveStatusSection?.moonInterferenceLevel ?? 'moderate')
                         )}>
-                          {currentAstro.moonDistance.toFixed(0)}°
+                          {planningSection.moonDistance}
                         </p>
                       </div>
                       <div className="rounded-lg bg-muted/30 p-2.5">
@@ -452,24 +520,24 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
                           <span className="text-xs font-medium">{t('session.maxAltitude')}</span>
                         </div>
                         <p className="font-mono text-sm font-medium">
-                          {currentAstro.visibility.transitAltitude.toFixed(1)}°
+                          {planningSection.maxAltitude}
                         </p>
                       </div>
                     </div>
 
                     {/* Imaging Feasibility + auxiliary indicators */}
                     <div className="space-y-2">
-                      <FeasibilityBadge feasibility={currentAstro.feasibility} variant="inline" tooltipSide="top" className="p-2.5 rounded-lg bg-muted/30" />
+                      <FeasibilityBadge feasibility={planningSection.feasibility} variant="inline" tooltipSide="top" className="p-2.5 rounded-lg bg-muted/30" />
                       <div className="flex flex-wrap items-center gap-2">
-                        {currentAstro.visibility.darkImagingHours > 0 && (
+                        {planningSection.visibility.darkImagingHours > 0 && (
                           <div className="flex items-center gap-1.5 text-xs text-green-400">
                             <Clock className="h-3.5 w-3.5" />
                             {t('info.darkImagingWindow', { 
-                              hours: currentAstro.visibility.darkImagingHours.toFixed(1) 
+                              hours: planningSection.visibility.darkImagingHours.toFixed(1) 
                             })}
                           </div>
                         )}
-                        {currentAstro.visibility.isCircumpolar && (
+                        {planningSection.visibility.isCircumpolar && (
                           <Badge variant="outline" className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">
                             {t('session.circumpolar')}
                           </Badge>
@@ -494,7 +562,7 @@ export const ObjectDetailDrawer = memo(function ObjectDetailDrawer({
         </ScrollArea>
 
         {/* Action Buttons - with safe area for mobile */}
-        <div className="p-4 pt-2 border-t bg-background/80 backdrop-blur-sm safe-area-bottom">
+        <div className="p-4 pt-2 border-t bg-background/80 backdrop-blur-sm">
           <div className="flex gap-2">
             {mountConnected && (
               <Button

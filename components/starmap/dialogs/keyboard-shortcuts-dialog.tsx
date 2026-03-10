@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Keyboard, Command, Navigation, Eye, Clock,
@@ -9,6 +9,12 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
+  Command as CommandRoot,
+  CommandEmpty,
+  CommandInput,
+  CommandList,
+} from '@/components/ui/command';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -16,14 +22,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { Kbd, KbdGroup } from '@/components/ui/kbd';
+import { Separator } from '@/components/ui/separator';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { ShortcutItem, KeyboardShortcutsDialogProps } from '@/types/keyboard-shortcuts';
 import { SHORTCUT_GROUP_DEFINITIONS } from '@/lib/constants/keyboard-shortcuts-data';
@@ -34,10 +39,7 @@ import {
   type ShortcutActionId,
   type KeyBinding,
 } from '@/lib/stores';
-
-// ============================================================================
-// Icon Mapping
-// ============================================================================
+import { STARMAP_DIALOG_ICON_TRIGGER_CLASS } from './dialog-layout';
 
 const ICON_MAP: Record<string, LucideIcon> = {
   Navigation,
@@ -46,9 +48,17 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Clock,
 };
 
-// ============================================================================
-// Key Capture Component
-// ============================================================================
+function ShortcutKeyDisplay({ displayText, dimmed = false }: { displayText: string; dimmed?: boolean }) {
+  const tokens = displayText.split('+').filter(Boolean);
+
+  return (
+    <KbdGroup className={cn(dimmed && 'opacity-60')}>
+      {tokens.map((token) => (
+        <Kbd key={token}>{token}</Kbd>
+      ))}
+    </KbdGroup>
+  );
+}
 
 function KeyCaptureButton({
   actionId,
@@ -73,9 +83,8 @@ function KeyCaptureButton({
       e.preventDefault();
       e.stopPropagation();
 
-      // Escape cancels recording
       if (e.key === 'Escape') {
-        onStartRecording('' as ShortcutActionId); // clear recording
+        onStartRecording('' as ShortcutActionId);
         return;
       }
 
@@ -89,16 +98,13 @@ function KeyCaptureButton({
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [isRecording, actionId, onCapture, onStartRecording]);
 
-  // Focus button when recording starts
   useEffect(() => {
     if (isRecording) {
       buttonRef.current?.focus();
     }
   }, [isRecording]);
 
-  const displayText = isRecording
-    ? t('pressKey')
-    : formatKeyBinding(binding);
+  const displayText = isRecording ? t('pressKey') : formatKeyBinding(binding);
 
   return (
     <Button
@@ -124,10 +130,6 @@ function KeyCaptureButton({
   );
 }
 
-// ============================================================================
-// Shortcut Row Components
-// ============================================================================
-
 function ShortcutKeyRowView({
   shortcut,
   t,
@@ -140,7 +142,6 @@ function ShortcutKeyRowView({
     actionId ? s.getBinding(actionId) : null
   );
 
-  // Use store binding if available, otherwise fall back to static definition
   const displayText = binding
     ? formatKeyBinding(binding)
     : shortcut.modifier
@@ -148,13 +149,11 @@ function ShortcutKeyRowView({
       : shortcut.key;
 
   return (
-    <div className="flex items-center justify-between py-1.5">
+    <div className="flex items-center justify-between gap-2 py-1.5">
       <span className="text-sm text-muted-foreground">
         {t(`shortcuts.${shortcut.descriptionKey}`)}
       </span>
-      <Badge variant="secondary" className="font-mono text-xs px-1.5 py-0">
-        {displayText}
-      </Badge>
+      <ShortcutKeyDisplay displayText={displayText} />
     </div>
   );
 }
@@ -182,15 +181,16 @@ function ShortcutKeyRowEdit({
   );
 
   if (!actionId) {
-    // Non-customizable shortcut — show static display
+    const displayText = shortcut.modifier
+      ? `${shortcut.modifier}+${shortcut.key}`
+      : shortcut.key;
+
     return (
-      <div className="flex items-center justify-between py-1.5">
+      <div className="flex items-center justify-between gap-2 py-1.5">
         <span className="text-sm text-muted-foreground">
           {t(`shortcuts.${shortcut.descriptionKey}`)}
         </span>
-        <Badge variant="secondary" className="font-mono text-xs px-1.5 py-0 opacity-50">
-          {shortcut.modifier ? `${shortcut.modifier}+${shortcut.key}` : shortcut.key}
-        </Badge>
+        <ShortcutKeyDisplay displayText={displayText} dimmed />
       </div>
     );
   }
@@ -237,21 +237,43 @@ function ShortcutKeyRowEdit({
   );
 }
 
-// ============================================================================
-// Main Component
-// ============================================================================
-
 export function KeyboardShortcutsDialog({ trigger }: KeyboardShortcutsDialogProps) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [recordingAction, setRecordingAction] = useState<ShortcutActionId | null>(null);
   const [conflictAction, setConflictAction] = useState<ShortcutActionId | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const setBinding = useKeybindingStore((s) => s.setBinding);
   const resetBinding = useKeybindingStore((s) => s.resetBinding);
   const resetAllBindings = useKeybindingStore((s) => s.resetAllBindings);
   const findConflict = useKeybindingStore((s) => s.findConflict);
+
+  const filteredGroups = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return SHORTCUT_GROUP_DEFINITIONS;
+    }
+
+    return SHORTCUT_GROUP_DEFINITIONS
+      .map((group) => ({
+        ...group,
+        shortcuts: group.shortcuts.filter((shortcut) => {
+          const description = t(`shortcuts.${shortcut.descriptionKey}`).toLowerCase();
+          const keyText = shortcut.modifier
+            ? `${shortcut.modifier}+${shortcut.key}`.toLowerCase()
+            : shortcut.key.toLowerCase();
+          const actionId = shortcut.actionId?.toLowerCase() ?? '';
+          return (
+            description.includes(query) ||
+            keyText.includes(query) ||
+            actionId.includes(query)
+          );
+        }),
+      }))
+      .filter((group) => group.shortcuts.length > 0);
+  }, [searchQuery, t]);
 
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);
@@ -259,6 +281,7 @@ export function KeyboardShortcutsDialog({ trigger }: KeyboardShortcutsDialogProp
       setEditing(false);
       setRecordingAction(null);
       setConflictAction(null);
+      setSearchQuery('');
     }
   }, []);
 
@@ -268,11 +291,9 @@ export function KeyboardShortcutsDialog({ trigger }: KeyboardShortcutsDialogProp
   }, []);
 
   const handleCapture = useCallback((actionId: ShortcutActionId, binding: KeyBinding) => {
-    // Check for conflicts
     const conflict = findConflict(binding, actionId);
     if (conflict) {
       setConflictAction(conflict);
-      // Still apply — show conflict highlight but let user decide
       setBinding(actionId, binding);
     } else {
       setConflictAction(null);
@@ -292,7 +313,6 @@ export function KeyboardShortcutsDialog({ trigger }: KeyboardShortcutsDialogProp
     setRecordingAction(null);
   }, [resetAllBindings]);
 
-  // Global ? shortcut to open this dialog
   const handleGlobalShortcut = useCallback((event: KeyboardEvent) => {
     const activeElement = document.activeElement;
     const tagName = activeElement?.tagName.toLowerCase();
@@ -326,7 +346,7 @@ export function KeyboardShortcutsDialog({ trigger }: KeyboardShortcutsDialogProp
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-accent"
+                className={STARMAP_DIALOG_ICON_TRIGGER_CLASS}
                 aria-label={t('shortcuts.keyboardShortcuts')}
               >
                 <Keyboard className="h-4 w-4" />
@@ -366,48 +386,60 @@ export function KeyboardShortcutsDialog({ trigger }: KeyboardShortcutsDialogProp
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh] pr-4">
-          <div className="space-y-4">
-            {SHORTCUT_GROUP_DEFINITIONS.map((group, index) => {
-              const IconComponent = ICON_MAP[group.iconName];
-              return (
-                <div key={group.titleKey}>
-                  {index > 0 && <Separator className="my-3" />}
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-primary">
-                      {IconComponent && <IconComponent className="h-4 w-4" />}
-                    </span>
-                    <h3 className="font-medium text-sm">
-                      {t(`shortcuts.${group.titleKey}`)}
-                    </h3>
-                  </div>
-                  <div className="space-y-0.5 pl-6">
-                    {group.shortcuts.map((shortcut) =>
-                      editing ? (
-                        <ShortcutKeyRowEdit
-                          key={(shortcut.actionId || shortcut.key) + shortcut.descriptionKey}
-                          shortcut={shortcut}
-                          recordingAction={recordingAction}
-                          conflictAction={conflictAction}
-                          onCapture={handleCapture}
-                          onStartRecording={handleStartRecording}
-                          onReset={handleReset}
-                          t={t}
-                        />
-                      ) : (
-                        <ShortcutKeyRowView
-                          key={(shortcut.actionId || shortcut.key) + shortcut.descriptionKey}
-                          shortcut={shortcut}
-                          t={t}
-                        />
-                      )
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </ScrollArea>
+        <CommandRoot shouldFilter={false} className="rounded-lg border">
+          <CommandInput
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            placeholder={t('shortcuts.searchPlaceholder')}
+            data-testid="shortcuts-search-input"
+          />
+          <CommandList className="max-h-[56vh] max-h-[56dvh]">
+            {filteredGroups.length === 0 ? (
+              <CommandEmpty>{t('shortcuts.noResults')}</CommandEmpty>
+            ) : (
+              <div className="space-y-4 p-2">
+                {filteredGroups.map((group, index) => {
+                  const IconComponent = ICON_MAP[group.iconName];
+                  return (
+                    <div key={group.titleKey}>
+                      {index > 0 && <Separator className="my-3" />}
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-primary">
+                          {IconComponent && <IconComponent className="h-4 w-4" />}
+                        </span>
+                        <h3 className="text-sm font-medium">
+                          {t(`shortcuts.${group.titleKey}`)}
+                        </h3>
+                      </div>
+                      <div className="space-y-0.5 pl-6">
+                        {group.shortcuts.map((shortcut) =>
+                          editing ? (
+                            <ShortcutKeyRowEdit
+                              key={(shortcut.actionId || shortcut.key) + shortcut.descriptionKey}
+                              shortcut={shortcut}
+                              recordingAction={recordingAction}
+                              conflictAction={conflictAction}
+                              onCapture={handleCapture}
+                              onStartRecording={handleStartRecording}
+                              onReset={handleReset}
+                              t={t}
+                            />
+                          ) : (
+                            <ShortcutKeyRowView
+                              key={(shortcut.actionId || shortcut.key) + shortcut.descriptionKey}
+                              shortcut={shortcut}
+                              t={t}
+                            />
+                          )
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CommandList>
+        </CommandRoot>
 
         <div className="pt-2 border-t flex items-center justify-between">
           {editing ? (

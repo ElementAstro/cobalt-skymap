@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface ColorPickerProps {
-  colors: string[];
+  colors: readonly string[];
   value: string;
   onChange: (color: string) => void;
   className?: string;

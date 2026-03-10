@@ -88,11 +88,16 @@ export interface MobileLayoutProps {
   currentFov: number;
   selectedObject: SelectedObjectData | null;
   contextMenuCoords: ClickCoords | null;
+  activeMobilePanel: 'search' | 'details' | 'planning' | 'settings' | null;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFovSliderChange: (fov: number) => void;
   onLocationChange: (lat: number, lon: number, alt: number) => void;
   onGoToCoordinates: (ra: number, dec: number) => void;
+  onOpenSearch: () => void;
+  onOpenDetails: () => void;
+  onOpenSessionPlanner: () => void;
+  onOpenSettings: () => void;
 }
 
 // OverlaysContainerProps is defined locally in overlays-container.tsx
@@ -123,6 +128,7 @@ export interface CloseConfirmDialogProps {
 
 export interface SearchPanelProps {
   isOpen: boolean;
+  isMobileShell?: boolean;
   onClose: () => void;
   onSelect: () => void;
 }

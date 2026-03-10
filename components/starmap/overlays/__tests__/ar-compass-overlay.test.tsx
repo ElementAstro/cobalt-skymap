@@ -6,10 +6,24 @@ import { render, screen } from '@testing-library/react';
 
 // Mock stellarium store
 let mockViewDirection: { az: number; alt: number } | null = null;
+let mockSensorRuntime: {
+  status: string;
+  degradedReason: 'relative-source' | 'low-confidence' | 'stale-sample' | null;
+  error: string | null;
+} = {
+  status: 'active',
+  degradedReason: null,
+  error: null,
+};
 
 jest.mock('@/lib/stores', () => ({
   useStellariumStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({ viewDirection: mockViewDirection }),
+}));
+
+jest.mock('@/lib/stores/ar-runtime-store', () => ({
+  useARRuntimeStore: (selector: (state: { sensor: typeof mockSensorRuntime }) => unknown) =>
+    selector({ sensor: mockSensorRuntime }),
 }));
 
 jest.mock('@/lib/astronomy/starmap-utils', () => ({
@@ -22,6 +36,11 @@ describe('ARCompassOverlay', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockViewDirection = null;
+    mockSensorRuntime = {
+      status: 'active',
+      degradedReason: null,
+      error: null,
+    };
   });
 
   it('renders nothing when disabled', () => {
@@ -31,6 +50,18 @@ describe('ARCompassOverlay', () => {
 
   it('renders overlay when enabled', () => {
     render(<ARCompassOverlay enabled={true} />);
+    expect(screen.getByTestId('ar-compass-overlay')).toBeInTheDocument();
+  });
+
+  it('still renders with session status metadata when session is blocked', () => {
+    render(
+      <ARCompassOverlay enabled={true} sessionStatus="blocked" />
+    );
+    expect(screen.getByTestId('ar-compass-overlay')).toHaveAttribute('data-ar-session-status', 'blocked');
+  });
+
+  it('renders in degraded sensor-only mode', () => {
+    render(<ARCompassOverlay enabled={true} sessionStatus="degraded-sensor-only" />);
     expect(screen.getByTestId('ar-compass-overlay')).toBeInTheDocument();
   });
 
@@ -105,5 +136,29 @@ describe('ARCompassOverlay', () => {
     mockViewDirection = { az: (Math.PI / 180) * 45, alt: 0 };
     render(<ARCompassOverlay enabled={true} />);
     expect(screen.getByText('NE')).toBeInTheDocument();
+  });
+
+  it('hides numeric heading readout when pointing status is degraded', () => {
+    mockViewDirection = { az: Math.PI / 3, alt: Math.PI / 6 };
+    mockSensorRuntime = {
+      status: 'degraded',
+      degradedReason: 'low-confidence',
+      error: null,
+    };
+
+    render(<ARCompassOverlay enabled={true} sessionStatus="degraded-camera-only" />);
+    expect(screen.queryByText('60.0°')).not.toBeInTheDocument();
+    expect(screen.getAllByText('settings.sensorDegradedLowConfidence').length).toBeGreaterThan(0);
+  });
+
+  it('shows permission fallback copy when permission is denied', () => {
+    mockSensorRuntime = {
+      status: 'permission-denied',
+      degradedReason: null,
+      error: null,
+    };
+
+    render(<ARCompassOverlay enabled={true} />);
+    expect(screen.getByText('settings.sensorFallbackRequestPermission')).toBeInTheDocument();
   });
 });

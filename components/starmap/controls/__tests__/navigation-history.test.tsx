@@ -209,6 +209,16 @@ describe('NavigationHistory', () => {
     expect(screen.getByText('Orion')).toBeInTheDocument();
   });
 
+  it('renders each history entry as a focusable button', () => {
+    mockStore.history = [
+      { id: '1', name: 'Orion', ra: 83, dec: -5, fov: 2, timestamp: Date.now() },
+    ];
+    mockStore.currentIndex = 0;
+
+    render(<NavigationHistory {...defaultProps} />);
+    expect(screen.getByRole('button', { name: /Orion/ })).toBeInTheDocument();
+  });
+
   it('calls goTo and onNavigate when a history item is clicked', () => {
     const point = { id: '1', ra: 10, dec: 20, fov: 30, timestamp: Date.now() };
     mockStore.history = [
@@ -254,8 +264,8 @@ describe('NavigationHistory', () => {
     render(<NavigationHistory {...defaultProps} />);
 
     // Current item should have the primary styling class
-    const buttons = screen.getAllByText(/°/).map(el => el.closest('button'));
-    const hasHighlight = buttons.some(btn => btn?.className?.includes('border-primary'));
+    const items = screen.getAllByText(/°/).map(el => el.closest('[data-slot="item"]'));
+    const hasHighlight = items.some(item => item?.className?.includes('border-l-primary'));
     expect(hasHighlight).toBe(true);
   });
 

@@ -1,4 +1,4 @@
-import type { SearchResultItem } from '@/lib/core/types';
+import type { SearchResultItem, SearchRunMessage, SearchRunOutcome } from '@/lib/core/types';
 import {
   searchOnlineByCoordinates,
   searchOnlineByName,
@@ -33,17 +33,25 @@ export interface UnifiedSearchOptions {
 export interface BatchSearchItem {
   query: string;
   results: SearchResultItem[];
+  outcome: SearchRunOutcome;
+  issues?: SearchRunIssue[];
   errors?: string[];
+  warnings?: string[];
 }
+
+export type SearchRunIssue = SearchRunMessage;
 
 export interface UnifiedSearchResult {
   parsed: ParsedSearchQuery;
   intent: SearchIntent;
+  outcome: SearchRunOutcome;
   results: SearchResultItem[];
   localResults: SearchResultItem[];
   onlineResults: SearchResultItem[];
   onlineResponse?: OnlineSearchResponse;
+  issues: SearchRunIssue[];
   errors: string[];
+  warnings: string[];
   batchItems?: BatchSearchItem[];
 }
 
@@ -67,6 +75,8 @@ function onlineResultToSearchItem(result: OnlineSearchResult): SearchResultItem 
     Type: (typeMap[result.category] || 'DSO') as SearchResultItem['Type'],
     RA: result.ra,
     Dec: result.dec,
+    CanonicalId: result.canonicalId,
+    Identifiers: result.identifiers,
     'Common names': result.alternateNames?.join(', '),
     Magnitude: result.magnitude,
     Size: result.angularSize,
@@ -112,15 +122,38 @@ async function mapBatchInParallel<T, R>(
   return result;
 }
 
+function deriveOutcome(results: SearchResultItem[], issues: SearchRunIssue[]): SearchRunOutcome {
+  if (results.length > 0) {
+    return issues.length > 0 ? 'partial_success' : 'success';
+  }
+  return issues.length > 0 ? 'error' : 'empty';
+}
+
+function summarizeIssues(issues: SearchRunIssue[]): { errors: string[]; warnings: string[] } {
+  return {
+    errors: issues.filter(i => i.level === 'error').map(i => i.message),
+    warnings: issues.filter(i => i.level === 'warning').map(i => i.message),
+  };
+}
+
 async function runSingleSearch(
   options: UnifiedSearchOptions,
   parsed: ParsedSearchQuery
 ): Promise<UnifiedSearchResult> {
   const query = parsed.catalogQuery || parsed.normalized;
-  const errors: string[] = [];
+  const issues: SearchRunIssue[] = [];
   const localSearch = options.localSearch;
-  const shouldUseLocal = options.mode !== 'online' || !options.onlineAvailable;
+  const shouldUseLocal = options.mode === 'local' || options.mode === 'hybrid';
   const shouldUseOnline = options.mode !== 'local' && options.onlineAvailable;
+
+  if (options.mode === 'online' && !options.onlineAvailable) {
+    issues.push({
+      source: 'online',
+      level: 'error',
+      code: 'ONLINE_UNAVAILABLE',
+      message: 'Online search is unavailable',
+    });
+  }
 
   const localResults: SearchResultItem[] =
     shouldUseLocal && localSearch
@@ -151,32 +184,49 @@ async function runSingleSearch(
         });
       }
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : 'Online search failed');
+      issues.push({
+        source: 'online',
+        level: options.mode === 'online' ? 'error' : 'warning',
+        code: 'ONLINE_REQUEST_FAILED',
+        message: error instanceof Error ? error.message : 'Online search failed',
+      });
     }
   }
 
-  const onlineRaw = onlineResponse?.results ?? options.cachedOnline ?? [];
+  const onlineRaw = onlineResponse?.results ?? (shouldUseOnline ? options.cachedOnline ?? [] : []);
   onlineResults = onlineRaw
     .filter(result => passesMinorObjectFilter(result, options.includeMinorObjects, parsed.explicitMinor))
     .map(onlineResultToSearchItem);
 
   if (onlineResponse?.errors?.length) {
-    errors.push(...onlineResponse.errors.map(err => `${err.source}: ${err.error}`));
+    issues.push(
+      ...onlineResponse.errors.map((err) => ({
+        source: err.source,
+        level: 'warning' as const,
+        code: 'ONLINE_PROVIDER_ERROR',
+        message: `${err.source}: ${err.error}`,
+      }))
+    );
   }
 
   const merged = mergeSearchItems(localResults, onlineResults, {
     maxResults: options.maxResults,
     coordinateContext: parsed.coordinates,
   });
+  const outcome = deriveOutcome(merged, issues);
+  const { errors, warnings } = summarizeIssues(issues);
 
   return {
     parsed,
     intent: parsed.intent,
+    outcome,
     results: merged,
     localResults,
     onlineResults,
     onlineResponse,
+    issues,
     errors,
+    warnings,
   };
 }
 
@@ -186,10 +236,13 @@ export async function searchUnified(options: UnifiedSearchOptions): Promise<Unif
     return {
       parsed,
       intent: parsed.intent,
+      outcome: 'empty',
       results: [],
       localResults: [],
       onlineResults: [],
+      issues: [],
       errors: [],
+      warnings: [],
     };
   }
 
@@ -203,7 +256,10 @@ export async function searchUnified(options: UnifiedSearchOptions): Promise<Unif
     return {
       query,
       results: itemResult.results,
+      outcome: itemResult.outcome,
+      issues: itemResult.issues.length > 0 ? itemResult.issues : undefined,
       errors: itemResult.errors.length > 0 ? itemResult.errors : undefined,
+      warnings: itemResult.warnings.length > 0 ? itemResult.warnings : undefined,
     } as BatchSearchItem;
   });
 
@@ -212,14 +268,25 @@ export async function searchUnified(options: UnifiedSearchOptions): Promise<Unif
     [],
     { maxResults: options.maxResults }
   );
+  const issues = batchResults.flatMap((item) =>
+    (item.issues ?? []).map((issue) => ({
+      ...issue,
+      source: `${issue.source}[${item.query}]`,
+    }))
+  );
+  const outcome = deriveOutcome(flattened, issues);
+  const { errors, warnings } = summarizeIssues(issues);
 
   return {
     parsed,
     intent: 'batch',
+    outcome,
     results: flattened,
     localResults: [],
     onlineResults: [],
-    errors: batchResults.flatMap(item => item.errors ?? []),
+    issues,
+    errors,
+    warnings,
     batchItems: batchResults,
   };
 }
@@ -230,6 +297,7 @@ export function createCoordinateSearchResult(ra: number, dec: number): SearchRes
     Type: 'Coordinates',
     RA: ra,
     Dec: dec,
+    CanonicalId: `coord:${ra.toFixed(6)},${dec.toFixed(6)}`,
     'Common names': 'Custom Coordinates',
   };
 }

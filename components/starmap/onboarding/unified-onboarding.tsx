@@ -206,7 +206,7 @@ export function UnifiedOnboarding({
 
       {isSetupOpen && isConfigStep && (
         <Dialog open={isSetupOpen} onOpenChange={handleOpenChange}>
-          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-hidden bg-card/95 backdrop-blur-md border-border p-0">
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] max-h-[90dvh] overflow-hidden bg-card/95 backdrop-blur-md border-border p-0">
             <DialogTitle className="sr-only">{t('setupWizard.title')}</DialogTitle>
             <div className="relative">
               <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-primary/5" />
@@ -286,7 +286,7 @@ export function UnifiedOnboarding({
               </div>
             </div>
 
-            <div className="px-6 py-4 overflow-y-auto max-h-[50vh]">
+            <div className="px-6 py-4 overflow-y-auto max-h-[50vh] max-h-[50dvh]">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={setupStep}
@@ -381,7 +381,7 @@ export function UnifiedOnboarding({
             </DialogTitle>
             <DialogDescription>{t('onboarding.hub.description')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+          <div className="space-y-3 max-h-[45vh] max-h-[45dvh] overflow-y-auto pr-1">
             {moduleTours.map((tour) => {
               const progress = getTourProgress(tour.id);
               const done = completedTours.includes(tour.id);

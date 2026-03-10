@@ -32,6 +32,17 @@ export type { SolveResultCardProps } from '@/types/starmap/plate-solving';
 export function SolveResultCard({ result, onGoTo }: SolveResultCardProps) {
   const t = useTranslations();
   const [copied, setCopied] = useState(false);
+  const parsedError = (() => {
+    if (!result.errorMessage) return { code: null as string | null, message: null as string | null, attempts: null as string | null };
+    const codeMatch = result.errorMessage.match(/^\[([a-z_]+)\]\s*(.*)$/i);
+    const message = codeMatch ? codeMatch[2] : result.errorMessage;
+    const attemptsMatch = message.match(/\(Attempt\s+(\d+\/\d+)\)\s*$/i);
+    return {
+      code: codeMatch ? codeMatch[1] : null,
+      message: attemptsMatch ? message.replace(attemptsMatch[0], '').trim() : message,
+      attempts: attemptsMatch ? attemptsMatch[1] : null,
+    };
+  })();
 
   const handleCopyCoordinates = useCallback(async () => {
     if (!result.success || !result.coordinates) return;
@@ -125,7 +136,19 @@ export function SolveResultCard({ result, onGoTo }: SolveResultCardProps) {
         {!result.success && result.errorMessage && (
           <Alert variant="destructive" className="mt-2">
             <XCircle className="h-4 w-4" />
-            <AlertDescription>{result.errorMessage}</AlertDescription>
+            <AlertDescription>
+              {parsedError.message}
+              {parsedError.code && (
+                <span className="ml-2 text-xs uppercase tracking-wide">
+                  ({parsedError.code})
+                </span>
+              )}
+              {parsedError.attempts && (
+                <span className="ml-2 text-xs">
+                  {t('plateSolving.retryOnFailure') || 'Retry'} {parsedError.attempts}
+                </span>
+              )}
+            </AlertDescription>
           </Alert>
         )}
 

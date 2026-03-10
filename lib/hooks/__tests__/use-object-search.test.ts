@@ -4,6 +4,7 @@
 
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useObjectSearch, getDetailedMatch } from '../use-object-search';
+import { getResultId } from '@/lib/core/search-utils';
 
 // Mock the stores
 jest.mock('@/lib/stores', () => ({
@@ -16,7 +17,7 @@ jest.mock('@/lib/stores/target-list-store', () => ({
 
 const mockRecentSearches: { query: string }[] = [];
 const mockSearchStoreState = {
-  currentSearchMode: 'local' as const,
+  currentSearchMode: 'local' as 'local' | 'online' | 'hybrid',
   settings: { timeout: 15000, groupBySource: false },
   lastStatusCheck: Date.now(),
   onlineStatus: {
@@ -95,6 +96,13 @@ jest.mock('@/lib/astronomy/coordinates/conversions', () => ({
 }));
 
 describe('useObjectSearch', () => {
+  const getOnlineSearchMock = () => {
+    const mod = jest.requireMock('@/lib/services/online-search-service') as {
+      searchOnlineByName: jest.Mock;
+    };
+    return mod.searchOnlineByName;
+  };
+
   beforeEach(() => {
     jest.useFakeTimers();
     mockRecentSearches.length = 0;
@@ -137,6 +145,8 @@ describe('useObjectSearch', () => {
       expect(result.current.query).toBe('');
       expect(result.current.results).toEqual([]);
       expect(result.current.isSearching).toBe(false);
+      expect(result.current.searchOutcome).toBe('empty');
+      expect(result.current.searchMessages).toEqual([]);
     });
 
     it('should have default filters', () => {
@@ -295,7 +305,60 @@ describe('useObjectSearch', () => {
       
       await waitFor(() => {
         expect(result.current.results).toEqual([]);
+        expect(result.current.searchOutcome).toBe('empty');
       });
+    });
+
+    it('reports partial_success and preserves local results when hybrid online fails', async () => {
+      const searchOnlineByName = getOnlineSearchMock();
+      searchOnlineByName.mockRejectedValueOnce(new Error('timeout'));
+      mockSearchStoreState.currentSearchMode = 'hybrid';
+
+      const { result } = renderHook(() => useObjectSearch());
+
+      act(() => {
+        result.current.search('M31');
+        jest.advanceTimersByTime(200);
+      });
+
+      await waitFor(() => {
+        expect(result.current.results.length).toBeGreaterThan(0);
+      });
+
+      expect(result.current.searchOutcome).toBe('partial_success');
+      expect(result.current.searchMessages.length).toBeGreaterThan(0);
+    });
+
+    it('clears stale results and reports error when online search fails', async () => {
+      const searchOnlineByName = getOnlineSearchMock();
+      mockSearchStoreState.currentSearchMode = 'local';
+
+      const { result, rerender } = renderHook(() => useObjectSearch());
+
+      act(() => {
+        result.current.search('M31');
+        jest.advanceTimersByTime(200);
+      });
+
+      await waitFor(() => {
+        expect(result.current.results.length).toBeGreaterThan(0);
+      });
+
+      mockSearchStoreState.currentSearchMode = 'online';
+      searchOnlineByName.mockRejectedValueOnce(new Error('provider-down'));
+      rerender();
+
+      act(() => {
+        result.current.search('M31');
+        jest.advanceTimersByTime(200);
+      });
+
+      await waitFor(() => {
+        expect(result.current.searchOutcome).toBe('error');
+      });
+
+      expect(result.current.results).toEqual([]);
+      expect(result.current.searchMessages.length).toBeGreaterThan(0);
     });
   });
 
@@ -355,7 +418,7 @@ describe('useObjectSearch', () => {
       });
       
       const firstResult = result.current.results[0];
-      const id = `${firstResult.Type}-${firstResult.Name}`;
+      const id = getResultId(firstResult);
       
       act(() => {
         result.current.toggleSelection(id);
@@ -422,7 +485,7 @@ describe('useObjectSearch', () => {
       });
       
       const firstResult = result.current.results[0];
-      const id = `${firstResult.Type}-${firstResult.Name}`;
+      const id = getResultId(firstResult);
       
       act(() => {
         result.current.toggleSelection(id);

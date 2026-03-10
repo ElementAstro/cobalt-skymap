@@ -11,6 +11,9 @@ import {
 } from '@/components/ui/tooltip';
 import { useSettingsStore } from '@/lib/stores';
 import { useIsClient } from '@/lib/hooks/use-is-client';
+import { useARSessionStatus } from '@/lib/hooks/use-ar-session-status';
+import { useDeviceOrientation } from '@/lib/hooks/use-device-orientation';
+import { useARRuntimeStore } from '@/lib/stores/ar-runtime-store';
 import { cn } from '@/lib/utils';
 
 interface ARModeToggleProps {
@@ -30,12 +33,23 @@ export function ARModeToggle({ className }: ARModeToggleProps) {
   const isClient = useIsClient();
   const stellarium = useSettingsStore((s) => s.stellarium);
   const setStellariumSetting = useSettingsStore((s) => s.setStellariumSetting);
+  const setSensorRuntime = useARRuntimeStore((state) => state.setSensorRuntime);
 
   const savedSettingsRef = useRef<SavedSettings | null>(null);
 
   const arMode = stellarium.arMode;
+  const arSession = useARSessionStatus({ enabled: arMode });
+  const { isSupported, isPermissionGranted, requestPermission } = useDeviceOrientation({
+    enabled: false,
+    calibration: {
+      azimuthOffsetDeg: stellarium.sensorCalibrationAzimuthOffsetDeg,
+      altitudeOffsetDeg: stellarium.sensorCalibrationAltitudeOffsetDeg,
+      updatedAt: stellarium.sensorCalibrationUpdatedAt,
+      required: stellarium.sensorCalibrationRequired,
+    },
+  });
 
-  const handleToggle = useCallback(() => {
+  const handleToggle = useCallback(async () => {
     if (!arMode) {
       // Save current settings before entering AR
       savedSettingsRef.current = {
@@ -46,13 +60,59 @@ export function ARModeToggle({ className }: ARModeToggleProps) {
         sensorControl: stellarium.sensorControl,
       };
 
-      // Enable AR mode + sensor + disable opaque layers
+      // Enable AR mode + disable opaque layers first.
       setStellariumSetting('arMode', true);
-      setStellariumSetting('sensorControl', true);
       setStellariumSetting('atmosphereVisible', false);
       setStellariumSetting('landscapesVisible', false);
       setStellariumSetting('fogVisible', false);
       setStellariumSetting('milkyWayVisible', false);
+
+      // Keep AR camera usable even when sensors are unavailable/denied.
+      if (!isSupported) {
+        setStellariumSetting('sensorControl', false);
+        setSensorRuntime({
+          isSupported: false,
+          isPermissionGranted: false,
+          status: 'unsupported',
+          calibrationRequired: stellarium.sensorCalibrationRequired,
+          degradedReason: null,
+          source: 'none',
+          accuracyDeg: null,
+          error: 'Device orientation not supported',
+        });
+        return;
+      }
+
+      let granted = isPermissionGranted;
+      if (!granted) {
+        granted = await requestPermission();
+      }
+
+      if (granted) {
+        setStellariumSetting('sensorControl', true);
+        setSensorRuntime({
+          isSupported: true,
+          isPermissionGranted: true,
+          status: stellarium.sensorCalibrationRequired ? 'calibration-required' : 'idle',
+          calibrationRequired: stellarium.sensorCalibrationRequired,
+          degradedReason: null,
+          source: 'none',
+          accuracyDeg: null,
+          error: null,
+        });
+      } else {
+        setStellariumSetting('sensorControl', false);
+        setSensorRuntime({
+          isSupported: true,
+          isPermissionGranted: false,
+          status: 'permission-denied',
+          calibrationRequired: stellarium.sensorCalibrationRequired,
+          degradedReason: null,
+          source: 'none',
+          accuracyDeg: null,
+          error: 'Permission denied',
+        });
+      }
     } else {
       // Exit AR mode
       setStellariumSetting('arMode', false);
@@ -71,13 +131,29 @@ export function ARModeToggle({ className }: ARModeToggleProps) {
         savedSettingsRef.current = null;
       }
     }
-  }, [arMode, stellarium, setStellariumSetting]);
+  }, [
+    arMode,
+    isPermissionGranted,
+    isSupported,
+    requestPermission,
+    setSensorRuntime,
+    setStellariumSetting,
+    stellarium,
+  ]);
 
   if (!isClient) return null;
 
-  const tooltipText = arMode
-    ? t('settings.arModeDisable')
-    : t('settings.arModeEnable');
+  const tooltipText = !arMode
+    ? t('settings.arModeEnable')
+    : arSession.status === 'ready'
+      ? t('settings.arModeDisable')
+      : arSession.status === 'preflight'
+        ? t('settings.arStatusPreflight')
+        : arSession.status === 'degraded-camera-only'
+          ? t('settings.arStatusDegradedCameraOnly')
+          : arSession.status === 'degraded-sensor-only'
+            ? t('settings.arStatusDegradedSensorOnly')
+            : t('settings.arStatusBlocked');
 
   return (
     <Tooltip>
@@ -87,18 +163,32 @@ export function ARModeToggle({ className }: ARModeToggleProps) {
           size="icon"
           aria-label={tooltipText}
           data-testid="ar-mode-toggle"
+          data-ar-session-status={arSession.status}
           className={cn(
             'relative h-9 w-9 backdrop-blur-sm transition-colors',
-            arMode
+            arMode && arSession.status === 'ready'
               ? 'bg-blue-500/30 text-blue-400 hover:bg-blue-500/40'
-              : 'bg-background/60 text-foreground hover:bg-background/80',
+              : arMode && arSession.status === 'preflight'
+                ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                : arMode
+                  ? 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30'
+                  : 'bg-background/60 text-foreground hover:bg-background/80',
             className
           )}
-          onClick={handleToggle}
+          onClick={() => void handleToggle()}
         >
-          <Camera className={cn('h-5 w-5', arMode && 'animate-pulse')} />
+          <Camera className={cn('h-5 w-5', arMode && arSession.status !== 'blocked' && 'animate-pulse')} />
           {arMode && (
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-blue-500" />
+            <span
+              className={cn(
+                'absolute right-1 top-1 h-2 w-2 rounded-full',
+                arSession.status === 'ready'
+                  ? 'bg-blue-500'
+                  : arSession.status === 'preflight'
+                    ? 'bg-amber-400'
+                    : 'bg-orange-400'
+              )}
+            />
           )}
         </Button>
       </TooltipTrigger>

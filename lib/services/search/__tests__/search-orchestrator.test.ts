@@ -66,6 +66,7 @@ describe('searchUnified', () => {
 
     expect(result.intent).toBe('catalog');
     expect(result.results.length).toBeGreaterThan(0);
+    expect(result.outcome).toBe('success');
   });
 
   it('supports coordinate intent', async () => {
@@ -82,6 +83,7 @@ describe('searchUnified', () => {
 
     expect(result.intent).toBe('coordinates');
     expect(result.results.length).toBeGreaterThan(0);
+    expect(result.outcome).toBe('success');
     expect(mockSearchOnlineByCoordinates).toHaveBeenCalledWith(
       expect.objectContaining({ radius: 2 }),
       expect.any(Object)
@@ -103,6 +105,7 @@ describe('searchUnified', () => {
 
     expect(result.intent).toBe('batch');
     expect(result.batchItems?.length).toBe(2);
+    expect(result.outcome).toBe('success');
   });
 
   it('uses local mode without online requests', async () => {
@@ -123,6 +126,49 @@ describe('searchUnified', () => {
     expect(localSearch).toHaveBeenCalled();
     expect(mockSearchOnlineByName).not.toHaveBeenCalled();
     expect(result.results).toHaveLength(1);
+    expect(result.outcome).toBe('success');
+  });
+
+  it('keeps local matches in hybrid mode when online request fails', async () => {
+    mockSearchOnlineByName.mockRejectedValueOnce(new Error('timeout'));
+
+    const result = await searchUnified({
+      query: 'M31',
+      mode: 'hybrid',
+      onlineAvailable: true,
+      enabledSources: ['sesame'],
+      timeout: 5000,
+      maxResults: 20,
+      searchRadiusDeg: 5,
+      includeMinorObjects: true,
+      localSearch: () => [{ Name: 'M31', Type: 'DSO' as const, RA: 10.6846, Dec: 41.2688 }],
+    });
+
+    expect(result.results).toHaveLength(1);
+    expect(result.outcome).toBe('partial_success');
+    expect(result.issues.length).toBeGreaterThan(0);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it('reports error in online mode when online search is unavailable', async () => {
+    const localSearch = jest.fn(() => [{ Name: 'M31', Type: 'DSO' as const, RA: 10.6846, Dec: 41.2688 }]);
+
+    const result = await searchUnified({
+      query: 'M31',
+      mode: 'online',
+      onlineAvailable: false,
+      enabledSources: ['sesame'],
+      timeout: 5000,
+      maxResults: 20,
+      searchRadiusDeg: 5,
+      includeMinorObjects: true,
+      localSearch,
+    });
+
+    expect(localSearch).not.toHaveBeenCalled();
+    expect(result.results).toHaveLength(0);
+    expect(result.outcome).toBe('error');
+    expect(result.errors).toContain('Online search is unavailable');
   });
 
   it('filters minor objects when includeMinorObjects is false', async () => {
@@ -158,6 +204,7 @@ describe('searchUnified', () => {
     });
 
     expect(result.results).toHaveLength(0);
+    expect(result.outcome).toBe('empty');
   });
 
   it('keeps explicit minor-object queries even when includeMinorObjects is false', async () => {
@@ -195,5 +242,6 @@ describe('searchUnified', () => {
     expect(result.intent).toBe('minor');
     expect(result.results).toHaveLength(1);
     expect(result.results[0].Type).toBe('Asteroid');
+    expect(result.outcome).toBe('success');
   });
 });

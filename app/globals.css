@@ -194,6 +194,27 @@
   --theme-transition-duration: 200ms;
 }
 
+/* ============================================================================
+   Safe area variables (mobile notch / system bars)
+   ============================================================================ */
+
+:root {
+  --safe-area-top: 0px;
+  --safe-area-bottom: 0px;
+  --safe-area-left: 0px;
+  --safe-area-right: 0px;
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+  :root {
+    /* Clamp to avoid incorrect large insets on some WebViews. */
+    --safe-area-top: clamp(0px, env(safe-area-inset-top, 0px), 80px);
+    --safe-area-bottom: clamp(0px, env(safe-area-inset-bottom, 0px), 80px);
+    --safe-area-left: clamp(0px, env(safe-area-inset-left, 0px), 80px);
+    --safe-area-right: clamp(0px, env(safe-area-inset-right, 0px), 80px);
+  }
+}
+
 /* Apply smooth transitions to theme-sensitive properties */
 html:not(.no-transitions),
 html:not(.no-transitions) body,
@@ -216,31 +237,34 @@ html.no-transitions *::after {
    ============================================================================ */
 
 /* Safe area padding for PWA/notch devices */
-@supports (padding: env(safe-area-inset-top)) {
-  .safe-area-top {
-    padding-top: env(safe-area-inset-top, 0px);
-  }
-  .safe-area-bottom {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .safe-area-left {
-    padding-left: env(safe-area-inset-left, 0px);
-  }
-  .safe-area-right {
-    padding-right: env(safe-area-inset-right, 0px);
-  }
-  .safe-area-inset {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
-  }
+.safe-area-top {
+  padding-top: var(--safe-area-top);
+}
+.safe-area-bottom {
+  padding-bottom: var(--safe-area-bottom);
+}
+.safe-area-left {
+  padding-left: var(--safe-area-left);
+}
+.safe-area-right {
+  padding-right: var(--safe-area-right);
+}
+.safe-area-inset {
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
 }
 
 /* Touch-friendly minimum tap target */
 .touch-target {
   min-width: 44px;
   min-height: 44px;
+}
+
+/* Prevent canvas gestures and UI controls from competing for touch ownership. */
+[data-starmap-ui-control="true"] {
+  touch-action: manipulation;
 }
 
 /* ============================================================================
@@ -586,7 +610,24 @@ html.no-transitions *::after {
 
 /* Mobile bottom bar safe area */
 .mobile-bottom-bar {
-  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(0.5rem + var(--safe-area-bottom));
+}
+
+/* Keep the mobile action rail reachable on very narrow phones. */
+@media (max-width: 360px) {
+  .mobile-rail-label {
+    display: none;
+  }
+
+  .mobile-rail-button {
+    justify-content: center;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+
+  .mobile-rail-icon {
+    margin-right: 0;
+  }
 }
 
 /* Responsive text truncation */

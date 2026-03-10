@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useMountStore } from '@/lib/stores';
+import { useLocationDraftModel } from '@/lib/hooks/use-settings-draft';
 import { cn } from '@/lib/utils';
 import { SettingsSection } from './settings-shared';
 
@@ -23,7 +23,7 @@ function LocationPermissionStatus() {
   const t = useTranslations();
   const [permissionState, setPermissionState] = useState<PermissionState>('unknown');
   const [isRequesting, setIsRequesting] = useState(false);
-  const setProfileInfo = useMountStore((state) => state.setProfileInfo);
+  const { setLocation } = useLocationDraftModel();
 
   useEffect(() => {
     let permissionStatus: PermissionStatus | null = null;
@@ -71,17 +71,16 @@ function LocationPermissionStatus() {
       (position) => {
         setPermissionState('granted');
         setIsRequesting(false);
-        
-        const currentProfile = useMountStore.getState().profileInfo;
-        setProfileInfo({
-          ...currentProfile,
-          AstrometrySettings: {
-            ...currentProfile.AstrometrySettings,
-            Latitude: position.coords.latitude,
-            Longitude: position.coords.longitude,
-            Elevation: position.coords.altitude || currentProfile.AstrometrySettings.Elevation || 0,
-          },
-        });
+
+        const nextLocation: Parameters<typeof setLocation>[0] = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        if (position.coords.altitude !== null && Number.isFinite(position.coords.altitude)) {
+          nextLocation.elevation = position.coords.altitude;
+        }
+
+        setLocation(nextLocation);
       },
       (error) => {
         setIsRequesting(false);
@@ -97,7 +96,7 @@ function LocationPermissionStatus() {
         maximumAge: 0,
       }
     );
-  }, [setProfileInfo]);
+  }, [setLocation]);
   
   const getStatusIcon = () => {
     switch (permissionState) {
@@ -179,27 +178,26 @@ function LocationPermissionStatus() {
 
 export function LocationSettings() {
   const t = useTranslations();
-  const profileInfo = useMountStore((state) => state.profileInfo);
-  const setProfileInfo = useMountStore((state) => state.setProfileInfo);
+  const { location, setLocation } = useLocationDraftModel();
 
   const commitLocation = useCallback((field: 'Latitude' | 'Longitude' | 'Elevation', rawValue: string) => {
     const val = parseFloat(rawValue) || 0;
     let clamped = val;
     if (field === 'Latitude') clamped = Math.max(-90, Math.min(90, val));
     if (field === 'Longitude') clamped = Math.max(-180, Math.min(180, val));
-
-    const current = useMountStore.getState().profileInfo;
-    setProfileInfo({
-      ...current,
-      AstrometrySettings: {
-        ...current.AstrometrySettings,
-        [field]: clamped,
-      },
-    });
-  }, [setProfileInfo]);
+    if (field === 'Latitude') {
+      setLocation({ latitude: clamped });
+      return;
+    }
+    if (field === 'Longitude') {
+      setLocation({ longitude: clamped });
+      return;
+    }
+    setLocation({ elevation: clamped });
+  }, [setLocation]);
 
   // Key forces re-mount of inputs when store values change externally (e.g. GPS)
-  const storeKey = `${profileInfo.AstrometrySettings.Latitude}-${profileInfo.AstrometrySettings.Longitude}-${profileInfo.AstrometrySettings.Elevation}`;
+  const storeKey = `${location.latitude}-${location.longitude}-${location.elevation}`;
 
   return (
     <SettingsSection
@@ -228,7 +226,7 @@ export function LocationSettings() {
                 step="0.0001"
                 min={-90}
                 max={90}
-                defaultValue={profileInfo.AstrometrySettings.Latitude || 0}
+                defaultValue={location.latitude || 0}
                 onBlur={(e) => commitLocation('Latitude', e.target.value)}
                 placeholder={t('settings.latitudePlaceholder')}
                 className="h-8 text-sm font-mono"
@@ -241,7 +239,7 @@ export function LocationSettings() {
                 step="0.0001"
                 min={-180}
                 max={180}
-                defaultValue={profileInfo.AstrometrySettings.Longitude || 0}
+                defaultValue={location.longitude || 0}
                 onBlur={(e) => commitLocation('Longitude', e.target.value)}
                 placeholder={t('settings.longitudePlaceholder')}
                 className="h-8 text-sm font-mono"
@@ -253,7 +251,7 @@ export function LocationSettings() {
             <Input
               type="number"
               step="1"
-              defaultValue={profileInfo.AstrometrySettings.Elevation || 0}
+              defaultValue={location.elevation || 0}
               onBlur={(e) => commitLocation('Elevation', e.target.value)}
               placeholder={t('settings.elevationPlaceholder')}
               className="h-8 text-sm font-mono"

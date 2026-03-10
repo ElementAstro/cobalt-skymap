@@ -32,8 +32,14 @@ export type SensorStatus =
   | 'permission-required'
   | 'permission-denied'
   | 'calibration-required'
+  | 'degraded'
   | 'active'
   | 'error';
+
+export type SensorDegradedReason =
+  | 'relative-source'
+  | 'low-confidence'
+  | 'stale-sample';
 
 export interface SensorCalibrationState {
   azimuthOffsetDeg: number;
@@ -70,6 +76,7 @@ interface UseDeviceOrientationReturn {
   status: SensorStatus;
   source: OrientationSource;
   accuracyDeg: number | null;
+  degradedReason: SensorDegradedReason | null;
   calibration: SensorCalibrationState;
   requestPermission: () => Promise<boolean>;
   calibrateToCurrentView: (reference: CalibrationReference) => void;
@@ -100,9 +107,38 @@ const DEFAULT_CALIBRATION: SensorCalibrationState = {
 };
 
 const ABSOLUTE_SAMPLE_HOLD_MS = 1500;
+const SOURCE_TRANSITION_STABILIZE_MS = 600;
+const STALE_SAMPLE_MS = 1400;
+const LOW_CONFIDENCE_ACCURACY_DEG = 18;
+type PermissionCacheState = 'unknown' | 'granted' | 'denied';
+let permissionCacheState: PermissionCacheState = 'unknown';
+
+export function __resetDeviceOrientationPermissionCacheForTests() {
+  permissionCacheState = 'unknown';
+}
+
+interface SourceConditioning {
+  smoothing: number;
+  deadband: number;
+}
+
+interface SensorStatusInput {
+  enabled: boolean;
+  isSupported: boolean;
+  isPermissionGranted: boolean;
+  permissionDenied: boolean;
+  error: string | null;
+  calibrationRequired: boolean;
+  hasActiveSample: boolean;
+  degradedReason: SensorDegradedReason | null;
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function clamp01(value: number): number {
+  return clamp(value, 0, 1);
 }
 
 function normalizeCalibration(
@@ -185,6 +221,74 @@ function isWithinDeadband(
   return azimuthDiff < deadbandDeg && altitudeDiff < deadbandDeg;
 }
 
+function deriveDegradedReason(
+  sample: OrientationSample,
+  absolutePreferred: boolean,
+  sampleAgeMs: number
+): SensorDegradedReason | null {
+  if (sampleAgeMs > STALE_SAMPLE_MS) return 'stale-sample';
+  if (sample.accuracyDeg !== null && sample.accuracyDeg > LOW_CONFIDENCE_ACCURACY_DEG) {
+    return 'low-confidence';
+  }
+  if (absolutePreferred && sample.source !== 'deviceorientationabsolute') {
+    return 'relative-source';
+  }
+  return null;
+}
+
+function getSourceConditioning(
+  baseSmoothing: number,
+  baseDeadband: number,
+  degradedReason: SensorDegradedReason | null,
+  sourceTransitionUntil: number,
+  now: number
+): SourceConditioning {
+  let smoothing = clamp01(baseSmoothing);
+  let deadband = Math.max(baseDeadband, 0.01);
+
+  if (degradedReason === 'relative-source') {
+    smoothing *= 0.7;
+    deadband *= 1.35;
+  } else if (degradedReason === 'low-confidence') {
+    smoothing *= 0.55;
+    deadband *= 1.7;
+  } else if (degradedReason === 'stale-sample') {
+    smoothing *= 0.45;
+    deadband *= 1.9;
+  }
+
+  if (now < sourceTransitionUntil) {
+    smoothing *= 0.75;
+    deadband *= 1.2;
+  }
+
+  return {
+    smoothing: clamp(smoothing, 0.02, 1),
+    deadband: clamp(deadband, 0.05, 5),
+  };
+}
+
+function deriveSensorStatus({
+  enabled,
+  isSupported,
+  isPermissionGranted,
+  permissionDenied,
+  error,
+  calibrationRequired,
+  hasActiveSample,
+  degradedReason,
+}: SensorStatusInput): SensorStatus {
+  if (!isSupported) return 'unsupported';
+  if (!enabled) return 'idle';
+  if (!isPermissionGranted) {
+    return permissionDenied ? 'permission-denied' : 'permission-required';
+  }
+  if (error) return 'error';
+  if (calibrationRequired) return 'calibration-required';
+  if (degradedReason) return 'degraded';
+  return hasActiveSample ? 'active' : 'idle';
+}
+
 /**
  * Hook for device orientation/gyroscope control.
  * Includes source prioritization, screen orientation compensation, throttling,
@@ -214,11 +318,12 @@ export function useDeviceOrientation(
   const [skyDirection, setSkyDirection] = useState<SkyDirection | null>(null);
   const [isSupported] = useState(supportsDeviceOrientation);
   const [isPermissionGranted, setIsPermissionGranted] = useState(
-    () => isSupported && !usesPermissionRequestApi()
+    () => isSupported && (!usesPermissionRequestApi() || permissionCacheState === 'granted')
   );
-  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [permissionDenied, setPermissionDenied] = useState(permissionCacheState === 'denied');
   const [source, setSource] = useState<OrientationSource>('none');
   const [accuracyDeg, setAccuracyDeg] = useState<number | null>(null);
+  const [degradedReason, setDegradedReason] = useState<SensorDegradedReason | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasActiveSample, setHasActiveSample] = useState(false);
   const [uncontrolledCalibrationState, setUncontrolledCalibrationState] = useState<SensorCalibrationState>(
@@ -235,8 +340,11 @@ export function useDeviceOrientation(
   const smoothedDirectionRef = useRef<SkyDirection | null>(null);
   const emittedDirectionRef = useRef<SkyDirection | null>(null);
   const calibrationRef = useRef<SensorCalibrationState>(normalizedCalibration);
+  const degradedReasonRef = useRef<SensorDegradedReason | null>(null);
   const screenAngleRef = useRef(getScreenAngleDeg());
   const lastAbsoluteSampleAtRef = useRef(0);
+  const sourceTransitionUntilRef = useRef(0);
+  const lastSourceRef = useRef<OrientationSource>('none');
   const lastProcessedAtRef = useRef(0);
   const rafIdRef = useRef<number | null>(null);
 
@@ -259,6 +367,12 @@ export function useDeviceOrientation(
     }
     calibrationCallbackRef.current?.(next);
   }, [isCalibrationControlled]);
+
+  const setDegradedReasonState = useCallback((next: SensorDegradedReason | null) => {
+    if (degradedReasonRef.current === next) return;
+    degradedReasonRef.current = next;
+    setDegradedReason(next);
+  }, []);
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
     if (!isSupported) {
@@ -286,8 +400,10 @@ export function useDeviceOrientation(
         }
 
         const granted = permission === 'granted';
+        permissionCacheState = granted ? 'granted' : 'denied';
         setIsPermissionGranted(granted);
         setPermissionDenied(!granted);
+        setDegradedReasonState(null);
         if (!granted) {
           setError('Permission denied');
         } else {
@@ -296,19 +412,22 @@ export function useDeviceOrientation(
         return granted;
       }
 
+      permissionCacheState = 'granted';
       setIsPermissionGranted(true);
       setPermissionDenied(false);
+      setDegradedReasonState(null);
       setError(null);
       return true;
     } catch (permissionError) {
       const message = permissionError instanceof Error
         ? permissionError.message
         : 'Failed to request permission';
+      permissionCacheState = 'denied';
       setError(message);
       setPermissionDenied(true);
       return false;
     }
-  }, [isSupported]);
+  }, [isSupported, setDegradedReasonState]);
 
   const calibrateToCurrentView = useCallback((reference: CalibrationReference) => {
     const measured = latestRawDirectionRef.current ?? (() => {
@@ -372,12 +491,17 @@ export function useDeviceOrientation(
 
     const updateScreenOrientation = () => {
       screenAngleRef.current = getScreenAngleDeg();
+      sourceTransitionUntilRef.current = performance.now() + SOURCE_TRANSITION_STABILIZE_MS;
     };
 
     const pushSample = (sample: OrientationSample) => {
       if (!Number.isFinite(sample.alpha) || !Number.isFinite(sample.beta) || !Number.isFinite(sample.gamma)) {
         return;
       }
+      if (lastSourceRef.current !== 'none' && lastSourceRef.current !== sample.source) {
+        sourceTransitionUntilRef.current = performance.now() + SOURCE_TRANSITION_STABILIZE_MS;
+      }
+      lastSourceRef.current = sample.source;
       latestSampleRef.current = sample;
       setOrientation({
         alpha: sample.alpha,
@@ -468,6 +592,9 @@ export function useDeviceOrientation(
 
       const sample = latestSampleRef.current;
       if (!sample) return;
+      const sampleAgeMs = Date.now() - sample.timestamp;
+      const nextDegradedReason = deriveDegradedReason(sample, absolutePreferred, sampleAgeMs);
+      setDegradedReasonState(nextDegradedReason);
 
       const rawDirection = deviceEulerToSkyDirection(
         {
@@ -479,18 +606,43 @@ export function useDeviceOrientation(
       );
       latestRawDirectionRef.current = rawDirection;
 
+      if (nextDegradedReason === 'stale-sample') {
+        setHasActiveSample(false);
+        return;
+      }
+
+      const conditioning = getSourceConditioning(
+        smoothingFactor,
+        deadbandDeg,
+        nextDegradedReason,
+        sourceTransitionUntilRef.current,
+        timestamp
+      );
       const calibratedDirection = applyCalibration(rawDirection, calibrationRef.current);
-      const smoothed = applySmoothing(smoothedDirectionRef.current, calibratedDirection, smoothingFactor);
+      const smoothed = applySmoothing(smoothedDirectionRef.current, calibratedDirection, conditioning.smoothing);
       smoothedDirectionRef.current = smoothed;
 
-      if (isWithinDeadband(emittedDirectionRef.current, smoothed, deadbandDeg)) {
+      setHasActiveSample(true);
+      if (isWithinDeadband(emittedDirectionRef.current, smoothed, conditioning.deadband)) {
         return;
       }
 
       emittedDirectionRef.current = smoothed;
       setSkyDirection(smoothed);
-      setHasActiveSample(true);
       callbackRef.current?.(smoothed);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') return;
+
+      latestSampleRef.current = null;
+      latestRawDirectionRef.current = null;
+      smoothedDirectionRef.current = null;
+      emittedDirectionRef.current = null;
+      setHasActiveSample(false);
+      setSkyDirection(null);
+      setSource('none');
+      setAccuracyDeg(null);
     };
 
     updateScreenOrientation();
@@ -500,6 +652,7 @@ export function useDeviceOrientation(
     window.addEventListener('orientationchange', updateScreenOrientation);
     window.addEventListener('deviceorientationabsolute', handleAbsolute, true);
     window.addEventListener('deviceorientation', handleRelative as EventListener, true);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     rafIdRef.current = requestAnimationFrame(processLoop);
 
     return () => {
@@ -509,6 +662,7 @@ export function useDeviceOrientation(
       window.removeEventListener('orientationchange', updateScreenOrientation);
       window.removeEventListener('deviceorientationabsolute', handleAbsolute, true);
       window.removeEventListener('deviceorientation', handleRelative as EventListener, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
@@ -523,6 +677,7 @@ export function useDeviceOrientation(
     smoothingFactor,
     absolutePreferred,
     useCompassHeading,
+    setDegradedReasonState,
   ]);
 
   useEffect(() => {
@@ -531,6 +686,8 @@ export function useDeviceOrientation(
     latestRawDirectionRef.current = null;
     smoothedDirectionRef.current = null;
     emittedDirectionRef.current = null;
+    lastSourceRef.current = 'none';
+    sourceTransitionUntilRef.current = 0;
     lastProcessedAtRef.current = 0;
     if (typeof window === 'undefined') return;
 
@@ -540,28 +697,41 @@ export function useDeviceOrientation(
       setSource('none');
       setAccuracyDeg(null);
       setHasActiveSample(false);
+      setDegradedReasonState(null);
     }, 0);
 
     return () => {
       window.clearTimeout(resetTimer);
     };
-  }, [enabled]);
+  }, [enabled, setDegradedReasonState]);
 
   const effectiveOrientation = enabled ? orientation : null;
   const effectiveSkyDirection = enabled ? skyDirection : null;
   const effectiveSource = enabled ? source : 'none';
   const effectiveAccuracyDeg = enabled ? accuracyDeg : null;
+  const effectiveDegradedReason = enabled ? degradedReason : null;
 
   const status = useMemo<SensorStatus>(() => {
-    if (!isSupported) return 'unsupported';
-    if (!enabled) return 'idle';
-    if (!isPermissionGranted) {
-      return permissionDenied ? 'permission-denied' : 'permission-required';
-    }
-    if (error) return 'error';
-    if (calibrationState.required) return 'calibration-required';
-    return hasActiveSample ? 'active' : 'idle';
-  }, [isSupported, error, enabled, isPermissionGranted, permissionDenied, calibrationState.required, hasActiveSample]);
+    return deriveSensorStatus({
+      enabled,
+      isSupported,
+      isPermissionGranted,
+      permissionDenied,
+      error,
+      calibrationRequired: calibrationState.required,
+      hasActiveSample,
+      degradedReason: effectiveDegradedReason,
+    });
+  }, [
+    enabled,
+    isSupported,
+    isPermissionGranted,
+    permissionDenied,
+    error,
+    calibrationState.required,
+    hasActiveSample,
+    effectiveDegradedReason,
+  ]);
 
   return {
     orientation: effectiveOrientation,
@@ -571,6 +741,7 @@ export function useDeviceOrientation(
     status,
     source: effectiveSource,
     accuracyDeg: effectiveAccuracyDeg,
+    degradedReason: effectiveDegradedReason,
     calibration: calibrationState,
     requestPermission,
     calibrateToCurrentView,

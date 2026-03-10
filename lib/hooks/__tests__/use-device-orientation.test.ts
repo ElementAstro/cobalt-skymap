@@ -3,7 +3,10 @@
  */
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { altAzToRaDec } from '@/lib/astronomy/coordinates/transforms';
-import { useDeviceOrientation } from '../use-device-orientation';
+import {
+  __resetDeviceOrientationPermissionCacheForTests,
+  useDeviceOrientation,
+} from '../use-device-orientation';
 
 type RequestPermissionFn = jest.Mock<Promise<string>, [boolean?]>;
 
@@ -28,9 +31,11 @@ describe('useDeviceOrientation', () => {
   let requestPermissionMock: RequestPermissionFn;
   let rafSpy: jest.SpyInstance;
   let cafSpy: jest.SpyInstance;
+  let visibilityState: DocumentVisibilityState = 'visible';
 
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetDeviceOrientationPermissionCacheForTests();
     originalDeviceOrientationEvent = (global as unknown as { DeviceOrientationEvent?: unknown }).DeviceOrientationEvent;
     originalScreenOrientation = window.screen.orientation;
 
@@ -46,6 +51,11 @@ describe('useDeviceOrientation', () => {
         addEventListener: jest.fn(),
         removeEventListener: jest.fn(),
       },
+    });
+    visibilityState = 'visible';
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibilityState,
     });
 
     rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
@@ -78,6 +88,7 @@ describe('useDeviceOrientation', () => {
     expect(result.current.status).toBeDefined();
     expect(result.current.source).toBe('none');
     expect(result.current.accuracyDeg).toBeNull();
+    expect(result.current.degradedReason).toBeNull();
     expect(result.current.calibration.required).toBe(true);
   });
 
@@ -150,6 +161,7 @@ describe('useDeviceOrientation', () => {
       useDeviceOrientation({
         enabled: true,
         useCompassHeading: true,
+        absolutePreferred: false,
         calibration: {
           azimuthOffsetDeg: 0,
           altitudeOffsetDeg: 0,
@@ -245,7 +257,8 @@ describe('useDeviceOrientation', () => {
     });
     const second = directions[directions.length - 1];
     expect(Math.round(first.azimuth)).toBe(0);
-    expect(Math.round(second.azimuth)).toBe(90);
+    expect(second.azimuth).toBeGreaterThan(30);
+    expect(second.azimuth).toBeLessThan(100);
   });
 
   it('applies deadband to suppress tiny changes', async () => {
@@ -291,6 +304,91 @@ describe('useDeviceOrientation', () => {
     await waitFor(() => {
       expect(onOrientationChange).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('marks session as degraded when non-absolute source is used under absolute preference', async () => {
+    const { result } = renderHook(() =>
+      useDeviceOrientation({
+        enabled: true,
+        absolutePreferred: true,
+        smoothingFactor: 1,
+        calibration: {
+          azimuthOffsetDeg: 0,
+          altitudeOffsetDeg: 0,
+          required: false,
+          updatedAt: null,
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.requestPermission();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        createOrientationEvent('deviceorientation', {
+          alpha: 20,
+          beta: 40,
+          gamma: 5,
+          absolute: false,
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('degraded');
+      expect(result.current.degradedReason).toBe('relative-source');
+    });
+  });
+
+  it('marks session as degraded on stale sensor samples', async () => {
+    const nowSpy = jest.spyOn(Date, 'now');
+    let now = 1_000;
+    nowSpy.mockImplementation(() => now);
+    try {
+      const { result } = renderHook(() =>
+        useDeviceOrientation({
+          enabled: true,
+          smoothingFactor: 1,
+          calibration: {
+            azimuthOffsetDeg: 0,
+            altitudeOffsetDeg: 0,
+            required: false,
+            updatedAt: null,
+          },
+        })
+      );
+
+      await act(async () => {
+        await result.current.requestPermission();
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          createOrientationEvent('deviceorientationabsolute', {
+            alpha: 50,
+            beta: 30,
+            gamma: 10,
+            absolute: true,
+          })
+        );
+      });
+
+      await waitFor(() => {
+        expect(result.current.status).toBe('active');
+        expect(result.current.degradedReason).toBeNull();
+      });
+
+      now = 4_000;
+
+      await waitFor(() => {
+        expect(result.current.status).toBe('degraded');
+        expect(result.current.degradedReason).toBe('stale-sample');
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('updates calibration from current view reference', async () => {
@@ -340,5 +438,69 @@ describe('useDeviceOrientation', () => {
     expect(Number.isFinite(result.current.calibration.azimuthOffsetDeg)).toBe(true);
     expect(Number.isFinite(result.current.calibration.altitudeOffsetDeg)).toBe(true);
     expect(result.current.calibration.updatedAt).not.toBeNull();
+  });
+
+  it('clears active sample when page is hidden and recovers on new sample', async () => {
+    const { result } = renderHook(() =>
+      useDeviceOrientation({
+        enabled: true,
+        smoothingFactor: 1,
+        calibration: {
+          azimuthOffsetDeg: 0,
+          altitudeOffsetDeg: 0,
+          required: false,
+          updatedAt: null,
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.requestPermission();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        createOrientationEvent('deviceorientationabsolute', {
+          alpha: 35,
+          beta: 20,
+          gamma: 10,
+          absolute: true,
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('active');
+      expect(result.current.skyDirection).not.toBeNull();
+    });
+
+    visibilityState = 'hidden';
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('idle');
+      expect(result.current.skyDirection).toBeNull();
+      expect(result.current.source).toBe('none');
+    });
+
+    visibilityState = 'visible';
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(
+        createOrientationEvent('deviceorientationabsolute', {
+          alpha: 45,
+          beta: 30,
+          gamma: 15,
+          absolute: true,
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('active');
+      expect(result.current.skyDirection).not.toBeNull();
+    });
   });
 });

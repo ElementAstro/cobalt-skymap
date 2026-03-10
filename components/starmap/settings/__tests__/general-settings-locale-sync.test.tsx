@@ -5,9 +5,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 const mockSetPreference = jest.fn();
-const mockSetLocale = jest.fn();
-
-const settingsState = {
+const settingsDraftModel = {
   preferences: {
     locale: 'en' as const,
     timeFormat: '24h' as const,
@@ -31,14 +29,12 @@ jest.mock('next-intl', () => ({
 }));
 
 jest.mock('@/lib/stores', () => ({
-  useSettingsStore: (selector: (state: typeof settingsState) => unknown) => selector(settingsState),
   useDailyKnowledgeStore: (selector: (state: { openDialog: jest.Mock }) => unknown) =>
     selector({ openDialog: jest.fn() }),
 }));
 
-jest.mock('@/lib/i18n/locale-store', () => ({
-  useLocaleStore: (selector: (state: { setLocale: typeof mockSetLocale }) => unknown) =>
-    selector({ setLocale: mockSetLocale }),
+jest.mock('@/lib/hooks/use-settings-draft', () => ({
+  usePreferencesDraftModel: () => settingsDraftModel,
 }));
 
 jest.mock('@/components/starmap/settings/settings-shared', () => ({
@@ -76,12 +72,11 @@ describe('GeneralSettings locale linkage', () => {
     jest.clearAllMocks();
   });
 
-  it('updates settings locale and locale store together when language changes', () => {
+  it('updates only the draft locale when language changes', () => {
     render(<GeneralSettings />);
 
     fireEvent.click(screen.getByTestId('select-en'));
 
     expect(mockSetPreference).toHaveBeenCalledWith('locale', 'zh');
-    expect(mockSetLocale).toHaveBeenCalledWith('zh');
   });
 });

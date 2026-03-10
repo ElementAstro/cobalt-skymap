@@ -73,6 +73,8 @@ export function AdvancedSearchDialog({ open, onOpenChange, onSelect, searchHook 
     groupedResults,
     isSearching,
     isOnlineSearching,
+    searchOutcome,
+    searchMessages,
     selectedIds,
     sortBy,
     onlineAvailable,
@@ -197,10 +199,13 @@ export function AdvancedSearchDialog({ open, onOpenChange, onSelect, searchHook 
 
   const selectedCount = selectedIds.size;
   const hasResults = results.length > 0;
+  const hasPartialOutcome = searchOutcome === 'partial_success';
+  const hasErrorOutcome = searchOutcome === 'error';
+  const firstSearchMessage = searchMessages[0]?.message;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[85vh] max-h-[85dvh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <SlidersHorizontal className="h-5 w-5" />
@@ -506,6 +511,16 @@ export function AdvancedSearchDialog({ open, onOpenChange, onSelect, searchHook 
               </div>
             )}
 
+            {/* Partial-success indicator */}
+            {!isSearching && hasPartialOutcome && (
+              <div className="mx-1 mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-300">
+                {t('search.partialResults', {
+                  defaultValue: 'Partial results: showing available matches while some sources failed.',
+                })}
+                {firstSearchMessage ? ` ${firstSearchMessage}` : ''}
+              </div>
+            )}
+
             {/* Multi-select toolbar */}
             {hasResults && (
               <MultiSelectToolbar
@@ -538,11 +553,22 @@ export function AdvancedSearchDialog({ open, onOpenChange, onSelect, searchHook 
             )}
 
             {/* Empty State */}
-            {!hasResults && !isSearching && (
+            {!hasResults && !isSearching && !hasErrorOutcome && (
               <EmptyState
                 icon={CircleDot}
                 message={t('search.noResultsYet')}
                 hint={t('search.configureFiltersAndSearch')}
+                className="flex-1 flex flex-col items-center justify-center"
+                iconClassName="h-12 w-12"
+              />
+            )}
+
+            {/* Error State */}
+            {!isSearching && hasErrorOutcome && (
+              <EmptyState
+                icon={CircleDot}
+                message={t('search.searchFailed', { defaultValue: 'Search failed' })}
+                hint={firstSearchMessage || t('search.onlineSearchFailed')}
                 className="flex-1 flex flex-col items-center justify-center"
                 iconClassName="h-12 w-12"
               />

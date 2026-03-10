@@ -17,7 +17,7 @@ export { normalizeTelescopes, normalizeCameras } from './equipment-normalize';
 export { validateTelescopeForm, validateCameraForm, validateLocationForm } from './management-validators';
 
 // Search utilities
-export { getResultId } from './search-utils';
+export { getResultId, getCanonicalResultId, getLegacyResultId } from './search-utils';
 
 // Selection utilities
 export { buildSelectionData } from './selection-utils';

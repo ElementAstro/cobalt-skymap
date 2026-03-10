@@ -37,9 +37,35 @@ import {
   EYEPIECE_PRESETS,
   OCULAR_TELESCOPE_PRESETS,
 } from '@/lib/constants/equipment-presets';
+import { createSettingsDraftSnapshot } from '@/lib/settings/settings-draft';
+import { validateSettingsDraft } from '@/lib/settings/settings-validation';
 import { SettingsSection } from './settings-shared';
 
 type ThemeMode = 'light' | 'dark' | 'system';
+type ExportDomain =
+  | 'settings'
+  | 'theme'
+  | 'keybindings'
+  | 'equipment'
+  | 'location'
+  | 'eventSources'
+  | 'dailyKnowledge';
+
+const EXPORT_SCHEMA_VERSION = 5;
+const SUPPORTED_IMPORT_VERSIONS = new Set([3, 4, 5]);
+const SETTINGS_VALIDATION_CATEGORIES = new Set([
+  'connection',
+  'preferences',
+  'performance',
+  'accessibility',
+  'notifications',
+  'search',
+]);
+
+interface ExportMetadata {
+  schemaVersion: number;
+  domains: ExportDomain[];
+}
 
 function normalizeThemeMode(value: unknown): ThemeMode | null {
   if (value === 'light' || value === 'dark' || value === 'system') {
@@ -51,8 +77,9 @@ function normalizeThemeMode(value: unknown): ThemeMode | null {
 export interface ExportData {
   version: number;
   exportedAt: string;
+  metadata?: ExportMetadata;
   themeMode?: ThemeMode;
-  settings: {
+  settings?: {
     connection: ReturnType<typeof useSettingsStore.getState>['connection'];
     backendProtocol: ReturnType<typeof useSettingsStore.getState>['backendProtocol'];
     skyEngine: ReturnType<typeof useSettingsStore.getState>['skyEngine'];
@@ -65,7 +92,7 @@ export interface ExportData {
     aladinDisplay: ReturnType<typeof useSettingsStore.getState>['aladinDisplay'];
   };
   theme?: Partial<ReturnType<typeof useThemeStore.getState>['customization']>;
-  keybindings: ReturnType<typeof useKeybindingStore.getState>['customBindings'];
+  keybindings?: ReturnType<typeof useKeybindingStore.getState>['customBindings'];
   equipment?: {
     sensorWidth: number;
     sensorHeight: number;
@@ -100,6 +127,196 @@ export interface ExportData {
       snoozedDate: ReturnType<typeof useDailyKnowledgeStore.getState>['snoozedDate'];
       lastSeenItemId: ReturnType<typeof useDailyKnowledgeStore.getState>['lastSeenItemId'];
     };
+  };
+}
+
+interface ParsedImportResult {
+  ok: boolean;
+  data?: ExportData;
+  invalidDomains: ExportDomain[];
+  error?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getDomainsFromPayload(payload: Partial<ExportData>): ExportDomain[] {
+  const domains: ExportDomain[] = [];
+  if (payload.settings) domains.push('settings');
+  if (payload.theme) domains.push('theme');
+  if (payload.keybindings) domains.push('keybindings');
+  if (payload.equipment) domains.push('equipment');
+  if (payload.location) domains.push('location');
+  if (payload.eventSources) domains.push('eventSources');
+  if (payload.dailyKnowledge) domains.push('dailyKnowledge');
+  return domains;
+}
+
+function sanitizeSettingsDomain(settings: unknown): ExportData['settings'] | undefined {
+  if (!isRecord(settings)) {
+    return undefined;
+  }
+  return settings as ExportData['settings'];
+}
+
+function validateSettingsDomains(
+  settings: ExportData['settings'] | undefined,
+  location: ExportData['location'] | undefined,
+): { settingsValid: boolean; locationValid: boolean } {
+  const draft = createSettingsDraftSnapshot();
+
+  if (settings?.connection) {
+    draft.connection = { ...draft.connection, ...settings.connection };
+  }
+  if (settings?.backendProtocol) {
+    draft.backendProtocol = settings.backendProtocol;
+  }
+  if (settings?.preferences) {
+    draft.preferences = { ...draft.preferences, ...settings.preferences };
+  }
+  if (settings?.performance) {
+    draft.performance = { ...draft.performance, ...settings.performance };
+  }
+  if (settings?.accessibility) {
+    draft.accessibility = { ...draft.accessibility, ...settings.accessibility };
+  }
+  if (settings?.notifications) {
+    draft.notifications = { ...draft.notifications, ...settings.notifications };
+  }
+  if (settings?.search) {
+    draft.search = { ...draft.search, ...settings.search };
+  }
+  if (location) {
+    draft.location = {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      elevation: location.elevation,
+    };
+  }
+
+  const validation = validateSettingsDraft(draft);
+  if (validation.isValid) {
+    return { settingsValid: true, locationValid: true };
+  }
+
+  const hasSettingsValidationError = validation.issues.some((issue) =>
+    SETTINGS_VALIDATION_CATEGORIES.has(issue.category),
+  );
+  const hasLocationValidationError = validation.issues.some((issue) => issue.category === 'location');
+
+  return {
+    settingsValid: !hasSettingsValidationError,
+    locationValid: !hasLocationValidationError,
+  };
+}
+
+export function parseImportedSettingsProfile(raw: unknown): ParsedImportResult {
+  if (!isRecord(raw)) {
+    return {
+      ok: false,
+      invalidDomains: [],
+      error: 'Invalid settings file format',
+    };
+  }
+
+  const version = raw.version;
+  if (typeof version !== 'number' || !SUPPORTED_IMPORT_VERSIONS.has(version)) {
+    return {
+      ok: false,
+      invalidDomains: [],
+      error: 'Unsupported settings backup version',
+    };
+  }
+
+  const settings = sanitizeSettingsDomain(raw.settings);
+  const invalidDomains: ExportDomain[] = [];
+
+  const normalized: ExportData = {
+    version,
+    exportedAt:
+      typeof raw.exportedAt === 'string' && raw.exportedAt.trim().length > 0
+        ? raw.exportedAt
+        : new Date(0).toISOString(),
+    settings,
+    themeMode: normalizeThemeMode(raw.themeMode) ?? undefined,
+    theme: isRecord(raw.theme) ? (raw.theme as ExportData['theme']) : undefined,
+    keybindings: isRecord(raw.keybindings) ? (raw.keybindings as ExportData['keybindings']) : undefined,
+    equipment: isRecord(raw.equipment) ? (raw.equipment as ExportData['equipment']) : undefined,
+    location: isRecord(raw.location) ? (raw.location as ExportData['location']) : undefined,
+    eventSources: Array.isArray(raw.eventSources)
+      ? (raw.eventSources as ExportData['eventSources'])
+      : undefined,
+    dailyKnowledge: isRecord(raw.dailyKnowledge)
+      ? (raw.dailyKnowledge as ExportData['dailyKnowledge'])
+      : undefined,
+  };
+
+  if (raw.settings && !normalized.settings) {
+    invalidDomains.push('settings');
+  }
+
+  if (raw.keybindings && !normalized.keybindings) {
+    invalidDomains.push('keybindings');
+  }
+
+  if (raw.equipment && !normalized.equipment) {
+    invalidDomains.push('equipment');
+  }
+
+  if (raw.location && !normalized.location) {
+    invalidDomains.push('location');
+  }
+
+  if (raw.dailyKnowledge && !normalized.dailyKnowledge) {
+    invalidDomains.push('dailyKnowledge');
+  }
+
+  if (normalized.settings || normalized.location) {
+    const { settingsValid, locationValid } = validateSettingsDomains(
+      normalized.settings,
+      normalized.location,
+    );
+    if (!settingsValid) {
+      normalized.settings = undefined;
+      invalidDomains.push('settings');
+    }
+    if (!locationValid) {
+      normalized.location = undefined;
+      invalidDomains.push('location');
+    }
+  }
+
+  const deduplicatedInvalidDomains = [...new Set(invalidDomains)];
+
+  const metadataSource = isRecord(raw.metadata) ? raw.metadata : undefined;
+  const metadataDomains = Array.isArray(metadataSource?.domains)
+    ? metadataSource.domains.filter((domain): domain is ExportDomain => (
+      typeof domain === 'string'
+      && getDomainsFromPayload(normalized).includes(domain as ExportDomain)
+    ))
+    : getDomainsFromPayload(normalized);
+
+  normalized.metadata = {
+    schemaVersion:
+      typeof metadataSource?.schemaVersion === 'number'
+        ? metadataSource.schemaVersion
+        : version,
+    domains: metadataDomains,
+  };
+
+  if (normalized.metadata.domains.length === 0) {
+    return {
+      ok: false,
+      invalidDomains: deduplicatedInvalidDomains,
+      error: 'No importable settings domains found in file',
+    };
+  }
+
+  return {
+    ok: true,
+    data: normalized,
+    invalidDomains: deduplicatedInvalidDomains,
   };
 }
 
@@ -313,10 +530,11 @@ export function SettingsExportImport() {
   const t = useTranslations();
   const { theme: currentThemeMode, setTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error' | 'warning'>('idle');
   const [importError, setImportError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState<ExportData | null>(null);
+  const [pendingInvalidDomains, setPendingInvalidDomains] = useState<ExportDomain[]>([]);
 
   const handleExport = useCallback(() => {
     const settingsState = useSettingsStore.getState();
@@ -328,7 +546,7 @@ export function SettingsExportImport() {
     const dailyKnowledgeState = useDailyKnowledgeStore.getState();
 
     const exportData: ExportData = {
-      version: 4,
+      version: EXPORT_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       themeMode: normalizeThemeMode(currentThemeMode) ?? 'system',
       settings: {
@@ -382,6 +600,11 @@ export function SettingsExportImport() {
       },
     };
 
+    exportData.metadata = {
+      schemaVersion: EXPORT_SCHEMA_VERSION,
+      domains: getDomainsFromPayload(exportData),
+    };
+
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -400,13 +623,22 @@ export function SettingsExportImport() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const data = JSON.parse(event.target?.result as string) as ExportData;
-        if (typeof data.version !== 'number' || !data.settings) {
+        const rawData = JSON.parse(event.target?.result as string) as unknown;
+        const parsed = parseImportedSettingsProfile(rawData);
+        if (!parsed.ok || !parsed.data) {
           setImportStatus('error');
-          setImportError(t('settingsNew.exportImport.invalidFile'));
+          setImportError(parsed.error ?? t('settingsNew.exportImport.invalidFile'));
           return;
         }
-        setPendingImport(data);
+        setPendingImport(parsed.data);
+        setPendingInvalidDomains(parsed.invalidDomains);
+        if (parsed.invalidDomains.length > 0) {
+          setImportStatus('warning');
+          setImportError(`Skipped invalid domains: ${parsed.invalidDomains.join(', ')}`);
+        } else {
+          setImportStatus('idle');
+          setImportError('');
+        }
         setConfirmOpen(true);
       } catch {
         setImportStatus('error');
@@ -424,7 +656,13 @@ export function SettingsExportImport() {
     try {
       applyImportedSettings(pendingImport, setTheme);
 
-      setImportStatus('success');
+      if (pendingInvalidDomains.length > 0) {
+        setImportStatus('warning');
+        setImportError(`Skipped invalid domains: ${pendingInvalidDomains.join(', ')}`);
+      } else {
+        setImportStatus('success');
+        setImportError('');
+      }
       setTimeout(() => setImportStatus('idle'), 3000);
     } catch {
       setImportStatus('error');
@@ -432,8 +670,9 @@ export function SettingsExportImport() {
     }
 
     setPendingImport(null);
+    setPendingInvalidDomains([]);
     setConfirmOpen(false);
-  }, [pendingImport, setTheme, t]);
+  }, [pendingImport, pendingInvalidDomains, setTheme, t]);
 
   return (
     <div className="space-y-4">
@@ -485,6 +724,12 @@ export function SettingsExportImport() {
               {importError}
             </p>
           )}
+          {importStatus === 'warning' && (
+            <p className="text-xs text-amber-600 flex items-center gap-1">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {importError}
+            </p>
+          )}
         </div>
       </SettingsSection>
 
@@ -497,6 +742,14 @@ export function SettingsExportImport() {
               {pendingImport && (
                 <span className="block mt-2 text-xs font-mono text-muted-foreground">
                   {t('settingsNew.exportImport.exportedAt')}: {new Date(pendingImport.exportedAt).toLocaleString()}
+                  <br />
+                  Schema: {pendingImport.metadata?.schemaVersion ?? pendingImport.version}
+                  {pendingInvalidDomains.length > 0 && (
+                    <>
+                      <br />
+                      Skipped domains: {pendingInvalidDomains.join(', ')}
+                    </>
+                  )}
                 </span>
               )}
             </AlertDialogDescription>

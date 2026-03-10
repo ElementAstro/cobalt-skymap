@@ -60,7 +60,7 @@ pub use plate_solver::{
     analyse_image, delete_index, detect_plate_solvers, download_index, extract_stars,
     get_astap_databases, get_available_indexes, get_default_index_path,
     get_downloadable_indexes, get_installed_indexes, get_recommended_indexes,
-    cancel_plate_solve, get_solver_indexes, get_solver_info, load_solver_config, plate_solve,
+    cancel_online_solve, cancel_plate_solve, get_solver_indexes, get_solver_info, load_solver_config, plate_solve,
     recommend_astap_database, save_solver_config, solve_image_local, solve_online,
     validate_solver_path,
 };

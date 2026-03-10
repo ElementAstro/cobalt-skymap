@@ -688,6 +688,67 @@ describe('ObjectDetailDrawer', () => {
     });
   });
 
+  describe('section hierarchy and localization', () => {
+    it('renders canonical section order in overview tab', async () => {
+      render(
+        <ObjectDetailDrawer
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          selectedObject={mockSelectedObject}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockGetCachedObjectInfo).toHaveBeenCalled();
+      });
+
+      const identity = screen.getByTestId('object-drawer-section-identity');
+      const live = screen.getByTestId('object-drawer-section-live-status');
+      const planning = screen.getByTestId('object-drawer-section-planning-metrics');
+      const advanced = screen.getByTestId('object-drawer-section-advanced-metadata');
+
+      expect(identity.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(live.compareDocumentPosition(planning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(planning.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('uses localized keys for advanced metadata labels', async () => {
+      render(
+        <ObjectDetailDrawer
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          selectedObject={mockSelectedObject}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockGetCachedObjectInfo).toHaveBeenCalled();
+      });
+
+      expect(screen.getByText('objectDetail.frameTimeScale')).toBeInTheDocument();
+      expect(screen.getByText('objectDetail.qualityEop')).toBeInTheDocument();
+      expect(screen.getByText('objectDetail.timestamp')).toBeInTheDocument();
+    });
+
+    it('keeps shared core metrics formatted consistently across sections', async () => {
+      render(
+        <ObjectDetailDrawer
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          selectedObject={mockSelectedObject}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockGetCachedObjectInfo).toHaveBeenCalled();
+      });
+
+      expect(screen.getAllByText('45.0°').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('180.0°').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('60°').length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
   describe('Images Tab', () => {
     it('renders image gallery component', async () => {
       render(
@@ -994,7 +1055,7 @@ describe('ObjectDetailDrawer', () => {
         expect(mockGetCachedObjectInfo).toHaveBeenCalled();
       });
 
-      expect(screen.getByText('60°')).toBeInTheDocument();
+      expect(screen.getAllByText('60°').length).toBeGreaterThanOrEqual(1);
     });
   });
 

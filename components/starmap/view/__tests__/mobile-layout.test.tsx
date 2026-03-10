@@ -129,7 +129,7 @@ jest.mock('@/components/starmap/planning/tonight-recommendations', () => ({
 }));
 
 jest.mock('@/components/starmap/planning/session-planner', () => ({
-  SessionPlanner: createToolButton('session-planner'),
+  SessionPlannerButton: createToolButton('session-planner'),
 }));
 
 jest.mock('@/components/starmap/planning/astro-events-calendar', () => ({
@@ -172,11 +172,16 @@ const defaultProps = {
   currentFov: 45,
   selectedObject: null,
   contextMenuCoords: null,
+  activeMobilePanel: null as 'search' | 'details' | 'planning' | 'settings' | null,
   onZoomIn: jest.fn(),
   onZoomOut: jest.fn(),
   onFovSliderChange: jest.fn(),
   onLocationChange: jest.fn(),
   onGoToCoordinates: jest.fn(),
+  onOpenSearch: jest.fn(),
+  onOpenDetails: jest.fn(),
+  onOpenSessionPlanner: jest.fn(),
+  onOpenSettings: jest.fn(),
 };
 
 describe('MobileLayout', () => {
@@ -200,6 +205,8 @@ describe('MobileLayout', () => {
     expect(within(bottomBar).getByTestId('tool-markers')).toBeInTheDocument();
     expect(within(bottomBar).queryByTestId('tool-equipment-manager')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'mobileToolbar.more' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'starmap.searchObjects' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.allSettings' })).toBeInTheDocument();
   });
 
   it('renders full tool set when compact mode is disabled', () => {
@@ -219,5 +226,28 @@ describe('MobileLayout', () => {
     const { container } = render(<MobileLayout {...defaultProps} />);
 
     expect(container.querySelector('.one-hand-bottom-bar')).toBeInTheDocument();
+  });
+
+  it('calls core action callbacks from rail buttons', () => {
+    const onOpenSearch = jest.fn();
+    const onOpenSessionPlanner = jest.fn();
+    const onOpenSettings = jest.fn();
+
+    render(
+      <MobileLayout
+        {...defaultProps}
+        onOpenSearch={onOpenSearch}
+        onOpenSessionPlanner={onOpenSessionPlanner}
+        onOpenSettings={onOpenSettings}
+      />
+    );
+
+    screen.getByRole('button', { name: 'starmap.searchObjects' }).click();
+    screen.getByRole('button', { name: 'sessionPlanner.title' }).click();
+    screen.getByRole('button', { name: 'settings.allSettings' }).click();
+
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+    expect(onOpenSessionPlanner).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 });

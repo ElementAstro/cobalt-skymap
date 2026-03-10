@@ -5,6 +5,8 @@ import { useTranslations } from 'next-intl';
 import { Camera, SwitchCamera, Flashlight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCamera } from '@/lib/hooks/use-camera';
+import { useARSessionStatus } from '@/lib/hooks/use-ar-session-status';
+import { useARRuntimeStore } from '@/lib/stores/ar-runtime-store';
 import { cn } from '@/lib/utils';
 
 interface ARCameraBackgroundProps {
@@ -16,6 +18,9 @@ export function ARCameraBackground({ enabled, className }: ARCameraBackgroundPro
   const t = useTranslations();
   const videoRef = useRef<HTMLVideoElement>(null);
   const camera = useCamera({ facingMode: 'environment' });
+  const arSession = useARSessionStatus({ enabled });
+  const setCameraRuntime = useARRuntimeStore((state) => state.setCameraRuntime);
+  const resetCameraRuntime = useARRuntimeStore((state) => state.resetCameraRuntime);
 
   // Start/stop camera based on enabled prop
   useEffect(() => {
@@ -24,8 +29,51 @@ export function ARCameraBackground({ enabled, className }: ARCameraBackgroundPro
     } else {
       camera.stop();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
+  }, [camera, enabled]);
+
+  useEffect(() => {
+    if (!enabled) {
+      resetCameraRuntime();
+      return;
+    }
+    setCameraRuntime({
+      isSupported: camera.isSupported,
+      isLoading: camera.isLoading,
+      hasStream: Boolean(camera.stream),
+      errorType: camera.errorType,
+    });
+  }, [
+    camera.errorType,
+    camera.isLoading,
+    camera.isSupported,
+    camera.stream,
+    enabled,
+    resetCameraRuntime,
+    setCameraRuntime,
+  ]);
+
+  useEffect(() => {
+    if (!enabled || typeof document === 'undefined') return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        camera.stop();
+        return;
+      }
+      if (document.visibilityState === 'visible') {
+        void camera.start();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [camera, enabled]);
+
+  useEffect(() => () => {
+    resetCameraRuntime();
+  }, [resetCameraRuntime]);
 
   // Attach stream to video element
   useEffect(() => {
@@ -75,9 +123,27 @@ export function ARCameraBackground({ enabled, className }: ARCameraBackgroundPro
         aria-label="AR camera background"
       />
 
+      {arSession.status !== 'ready' && (
+        <div className="absolute left-2 top-2 z-10 rounded-md bg-black/40 px-2 py-1 text-[10px] text-white/90 backdrop-blur-sm">
+          {arSession.status === 'preflight'
+            ? t('settings.arStatusPreflight')
+            : arSession.status === 'degraded-camera-only'
+              ? t('settings.arStatusDegradedCameraOnly')
+              : arSession.status === 'degraded-sensor-only'
+                ? t('settings.arStatusDegradedSensorOnly')
+                : t('settings.arStatusBlocked')}
+        </div>
+      )}
+
       {/* Camera controls overlay */}
       {camera.stream && (
-        <div className="absolute top-14 right-2 flex flex-col gap-1.5 z-10">
+        <div
+          className="absolute flex flex-col gap-1.5 z-10"
+          style={{
+            top: 'calc(3.5rem + var(--safe-area-top))',
+            right: 'calc(0.5rem + var(--safe-area-right))',
+          }}
+        >
           {camera.hasMultipleCameras && (
             <Button
               variant="secondary"

@@ -8,14 +8,13 @@ import {
   Focus,
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
-import { useSettingsStore } from '@/lib/stores';
+import { useAccessibilityDraftModel } from '@/lib/hooks/use-settings-draft';
 import { SettingsSection, ToggleItem } from './settings-shared';
 
 export function AccessibilitySettings() {
   const t = useTranslations();
   
-  const accessibility = useSettingsStore((state) => state.accessibility);
-  const setAccessibilitySetting = useSettingsStore((state) => state.setAccessibilitySetting);
+  const { accessibility, setAccessibilitySetting } = useAccessibilityDraftModel();
 
   return (
     <div className="space-y-4">

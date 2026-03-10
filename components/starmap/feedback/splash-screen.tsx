@@ -362,7 +362,7 @@ export function SplashScreen({
       {/* Skip hint */}
       <div 
         className={cn(
-          'absolute bottom-20 sm:bottom-24 text-center',
+          'absolute bottom-20 sm:bottom-24 text-center safe-area-bottom',
           'transition-opacity duration-500 delay-1000',
           showLoading ? 'opacity-60' : 'opacity-0'
         )}

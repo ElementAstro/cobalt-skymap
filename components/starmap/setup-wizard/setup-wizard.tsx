@@ -145,7 +145,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-hidden bg-card/95 backdrop-blur-md border-border p-0">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] max-h-[90dvh] overflow-hidden bg-card/95 backdrop-blur-md border-border p-0">
         {/* Visually hidden title for accessibility */}
         <DialogTitle className="sr-only">
           {t('setupWizard.title')}
@@ -221,7 +221,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         </div>
 
         {/* Content area with step transition animation */}
-        <div className="px-6 py-4 overflow-y-auto max-h-[50vh]">
+        <div className="px-6 py-4 overflow-y-auto max-h-[50vh] max-h-[50dvh]">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={currentStep}

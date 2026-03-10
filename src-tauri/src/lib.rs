@@ -110,8 +110,8 @@ use platform::{
     extract_stars, get_astap_databases, get_available_indexes,
     get_default_index_path, get_downloadable_indexes, get_installed_indexes,
     get_recommended_indexes, get_solver_indexes, get_solver_info, load_solver_config,
-    cancel_plate_solve, plate_solve, recommend_astap_database, save_solver_config, solve_image_local,
-    solve_online, validate_solver_path,
+    cancel_online_solve, cancel_plate_solve, plate_solve, recommend_astap_database, save_solver_config,
+    solve_image_local, solve_online, validate_solver_path,
 };
 
 #[cfg(desktop)]
@@ -119,18 +119,19 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default();
-
     // Single instance plugin must be registered FIRST (desktop only)
     #[cfg(desktop)]
-    {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
+        |app, _args, _cwd| {
             // Focus the main window when a new instance is attempted
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }
-        }));
-    }
+        },
+    ));
+
+    #[cfg(not(desktop))]
+    let builder = tauri::Builder::default();
 
     builder
         .plugin(tauri_plugin_fs::init())
@@ -440,6 +441,8 @@ pub fn run() {
             extract_stars,
             #[cfg(desktop)]
             solve_online,
+            #[cfg(desktop)]
+            cancel_online_solve,
             // Path config (desktop only)
             #[cfg(desktop)]
             get_path_config,

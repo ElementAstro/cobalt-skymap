@@ -2,12 +2,15 @@
  * @jest-environment jsdom
  */
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ARModeToggle } from '../ar-mode-toggle';
+import type { ARSessionStatus } from '@/lib/core/ar-session';
 
 const mockSetStellariumSetting = jest.fn();
+const mockSetSensorRuntime = jest.fn();
+const mockRequestPermission = jest.fn();
 
 let mockArMode = false;
 let mockAtmosphereVisible = true;
@@ -15,6 +18,9 @@ let mockLandscapesVisible = true;
 let mockFogVisible = false;
 let mockMilkyWayVisible = true;
 let mockSensorControl = false;
+let mockARSessionStatus: ARSessionStatus = 'ready';
+let mockIsSupported = true;
+let mockIsPermissionGranted = false;
 
 interface SettingsState {
   stellarium: {
@@ -24,6 +30,10 @@ interface SettingsState {
     fogVisible: boolean;
     milkyWayVisible: boolean;
     sensorControl: boolean;
+    sensorCalibrationRequired: boolean;
+    sensorCalibrationAzimuthOffsetDeg: number;
+    sensorCalibrationAltitudeOffsetDeg: number;
+    sensorCalibrationUpdatedAt: number | null;
   };
   setStellariumSetting: (key: string, value: unknown) => void;
 }
@@ -38,20 +48,54 @@ jest.mock('@/lib/stores', () => ({
         fogVisible: mockFogVisible,
         milkyWayVisible: mockMilkyWayVisible,
         sensorControl: mockSensorControl,
+        sensorCalibrationRequired: true,
+        sensorCalibrationAzimuthOffsetDeg: 0,
+        sensorCalibrationAltitudeOffsetDeg: 0,
+        sensorCalibrationUpdatedAt: null,
       },
       setStellariumSetting: mockSetStellariumSetting,
     });
   },
 }));
 
+jest.mock('@/lib/stores/ar-runtime-store', () => ({
+  useARRuntimeStore: <T,>(selector: (state: { setSensorRuntime: (next: unknown) => void }) => T): T =>
+    selector({
+      setSensorRuntime: mockSetSensorRuntime,
+    }),
+}));
+
 jest.mock('@/lib/hooks/use-is-client', () => ({
   useIsClient: () => true,
+}));
+
+jest.mock('@/lib/hooks/use-ar-session-status', () => ({
+  useARSessionStatus: () => ({
+    status: mockARSessionStatus,
+    cameraLayerEnabled: true,
+    sensorPointingEnabled: true,
+    compassEnabled: true,
+    needsUserAction: mockARSessionStatus !== 'ready',
+    recoveryActions: [],
+  }),
+}));
+
+jest.mock('@/lib/hooks/use-device-orientation', () => ({
+  useDeviceOrientation: () => ({
+    isSupported: mockIsSupported,
+    isPermissionGranted: mockIsPermissionGranted,
+    requestPermission: mockRequestPermission,
+  }),
 }));
 
 const messages = {
   settings: {
     arModeEnable: 'Enable AR sky overlay',
     arModeDisable: 'Disable AR mode',
+    arStatusPreflight: 'Checking AR readiness...',
+    arStatusDegradedCameraOnly: 'AR degraded: camera-only mode',
+    arStatusDegradedSensorOnly: 'AR degraded: sensor-only mode',
+    arStatusBlocked: 'AR blocked: action required',
   },
 };
 
@@ -71,6 +115,10 @@ describe('ARModeToggle', () => {
     mockFogVisible = false;
     mockMilkyWayVisible = true;
     mockSensorControl = false;
+    mockARSessionStatus = 'ready';
+    mockIsSupported = true;
+    mockIsPermissionGranted = false;
+    mockRequestPermission.mockResolvedValue(true);
   });
 
   it('renders a button with test id', () => {
@@ -78,16 +126,19 @@ describe('ARModeToggle', () => {
     expect(screen.getByTestId('ar-mode-toggle')).toBeInTheDocument();
   });
 
-  it('enables AR mode and disables opaque layers on click', () => {
+  it('enables AR mode and disables opaque layers on click', async () => {
     renderWithProviders(<ARModeToggle />);
     fireEvent.click(screen.getByTestId('ar-mode-toggle'));
 
     expect(mockSetStellariumSetting).toHaveBeenCalledWith('arMode', true);
-    expect(mockSetStellariumSetting).toHaveBeenCalledWith('sensorControl', true);
     expect(mockSetStellariumSetting).toHaveBeenCalledWith('atmosphereVisible', false);
     expect(mockSetStellariumSetting).toHaveBeenCalledWith('landscapesVisible', false);
     expect(mockSetStellariumSetting).toHaveBeenCalledWith('fogVisible', false);
     expect(mockSetStellariumSetting).toHaveBeenCalledWith('milkyWayVisible', false);
+    await waitFor(() => {
+      expect(mockRequestPermission).toHaveBeenCalled();
+      expect(mockSetStellariumSetting).toHaveBeenCalledWith('sensorControl', true);
+    });
   });
 
   it('disables AR mode on second click', () => {
@@ -100,8 +151,31 @@ describe('ARModeToggle', () => {
 
   it('shows active indicator when AR is on', () => {
     mockArMode = true;
+    mockARSessionStatus = 'ready';
     renderWithProviders(<ARModeToggle />);
     const button = screen.getByTestId('ar-mode-toggle');
     expect(button.querySelector('.bg-blue-500')).toBeInTheDocument();
+  });
+
+  it('shows preflight status indicator when AR session is not ready', () => {
+    mockArMode = true;
+    mockARSessionStatus = 'preflight';
+    renderWithProviders(<ARModeToggle />);
+    const button = screen.getByTestId('ar-mode-toggle');
+    expect(button).toHaveAttribute('data-ar-session-status', 'preflight');
+    expect(button.querySelector('.bg-amber-400')).toBeInTheDocument();
+  });
+
+  it('keeps AR on with sensor fallback when permission is denied', async () => {
+    mockRequestPermission.mockResolvedValue(false);
+    renderWithProviders(<ARModeToggle />);
+
+    fireEvent.click(screen.getByTestId('ar-mode-toggle'));
+
+    expect(mockSetStellariumSetting).toHaveBeenCalledWith('arMode', true);
+    await waitFor(() => {
+      expect(mockSetStellariumSetting).toHaveBeenCalledWith('sensorControl', false);
+      expect(mockSetSensorRuntime).toHaveBeenCalled();
+    });
   });
 });

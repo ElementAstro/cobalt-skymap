@@ -7,6 +7,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { altAzToRaDec } from '@/lib/astronomy/coordinates/transforms';
 import { SensorControlToggle } from '../sensor-control-toggle';
+import type { ARSessionStatus } from '@/lib/core/ar-session';
 
 const mockToggleStellariumSetting = jest.fn();
 const mockSetStellariumSetting = jest.fn();
@@ -16,14 +17,18 @@ const mockCalibrateToCurrentView = jest.fn();
 const mockResetCalibration = jest.fn();
 
 let mockSensorControl = false;
+let mockArMode = false;
 let mockIsSupported = true;
 let mockIsPermissionGranted = false;
 let mockStatus = 'idle';
 let mockSensorCalibrationRequired = true;
+let mockDegradedReason: 'relative-source' | 'low-confidence' | 'stale-sample' | null = null;
 let mockError: string | null = null;
+let mockArSessionStatus: ARSessionStatus = 'ready';
 
 interface SettingsState {
   stellarium: {
+    arMode: boolean;
     sensorControl: boolean;
     sensorSmoothingFactor: number;
     sensorUpdateHz: number;
@@ -58,6 +63,7 @@ jest.mock('@/lib/stores', () => ({
   useSettingsStore: <T,>(selector: (state: SettingsState) => T): T => {
     return selector({
       stellarium: {
+        arMode: mockArMode,
         sensorControl: mockSensorControl,
         sensorSmoothingFactor: 0.2,
         sensorUpdateHz: 30,
@@ -106,6 +112,7 @@ jest.mock('@/lib/hooks/use-device-orientation', () => ({
       status: mockStatus,
       source: 'deviceorientation',
       accuracyDeg: null,
+      degradedReason: mockDegradedReason,
       calibration: {
         azimuthOffsetDeg: 0,
         altitudeOffsetDeg: 0,
@@ -118,6 +125,17 @@ jest.mock('@/lib/hooks/use-device-orientation', () => ({
       error: mockError,
     };
   },
+}));
+
+jest.mock('@/lib/hooks/use-ar-session-status', () => ({
+  useARSessionStatus: () => ({
+    status: mockArSessionStatus,
+    cameraLayerEnabled: true,
+    sensorPointingEnabled: true,
+    compassEnabled: true,
+    needsUserAction: mockArSessionStatus !== 'ready',
+    recoveryActions: [],
+  }),
 }));
 
 const messages = {
@@ -134,6 +152,12 @@ const messages = {
     sensorRecalibrate: 'Recalibrate',
     sensorStatusPermissionDenied: 'Permission denied',
     sensorStatusUnsupported: 'Not supported',
+    sensorStatusDegraded: 'Limited tracking',
+    sensorDegradedRelativeSource: 'Using fallback source',
+    sensorDegradedLowConfidence: 'Low confidence',
+    sensorDegradedStaleSample: 'Sample stale',
+    sensorRetryPermission: 'Retry permission',
+    arStatusDegradedCameraOnly: 'AR degraded: camera-only mode',
     sensorStatusActive: 'Tracking',
     sensorAccuracy: 'Accuracy',
     sensorCalibrationDescription: 'Point to current map center.',
@@ -152,11 +176,14 @@ describe('SensorControlToggle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSensorControl = false;
+    mockArMode = false;
     mockIsSupported = true;
     mockIsPermissionGranted = false;
     mockStatus = 'idle';
     mockSensorCalibrationRequired = true;
+    mockDegradedReason = null;
     mockError = null;
+    mockArSessionStatus = 'ready';
   });
 
   it('renders a button with test id', () => {
@@ -240,5 +267,36 @@ describe('SensorControlToggle', () => {
 
     fireEvent.click(screen.getByText('settings.sensorCalibrateNow'));
     expect(mockCalibrateToCurrentView).toHaveBeenCalled();
+  });
+
+  it('shows AR degraded label when AR mode is active and sensor is not ready', () => {
+    mockArMode = true;
+    mockSensorControl = true;
+    mockIsPermissionGranted = true;
+    mockStatus = 'idle';
+    mockArSessionStatus = 'degraded-camera-only';
+
+    renderWithProviders(<SensorControlToggle showStatusLabel />);
+    expect(screen.getByText('settings.arStatusDegradedCameraOnly')).toBeInTheDocument();
+  });
+
+  it('shows degraded reason label when status is degraded', () => {
+    mockSensorControl = true;
+    mockIsPermissionGranted = true;
+    mockStatus = 'degraded';
+    mockDegradedReason = 'low-confidence';
+
+    renderWithProviders(<SensorControlToggle showStatusLabel />);
+    expect(screen.getByText('settings.sensorStatusDegraded')).toBeInTheDocument();
+    expect(screen.getByText('settings.sensorDegradedLowConfidence')).toBeInTheDocument();
+  });
+
+  it('shows retry permission action for denied status', () => {
+    mockSensorControl = true;
+    mockIsPermissionGranted = false;
+    mockStatus = 'permission-denied';
+
+    renderWithProviders(<SensorControlToggle showStatusLabel />);
+    expect(screen.getByText('settings.sensorRetryPermission')).toBeInTheDocument();
   });
 });

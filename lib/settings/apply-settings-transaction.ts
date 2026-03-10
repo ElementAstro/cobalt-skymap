@@ -1,0 +1,175 @@
+import { useMountStore } from '@/lib/stores/mount-store';
+import { useSettingsStore } from '@/lib/stores/settings-store';
+import type { SettingsDraft, SettingsDraftCategory } from './settings-draft';
+
+export interface DomainApplyFailure {
+  domain: SettingsDraftCategory;
+  error: string;
+}
+
+export interface ApplySettingsTransactionResult {
+  success: boolean;
+  appliedDomains: SettingsDraftCategory[];
+  failedDomains: DomainApplyFailure[];
+  rolledBackDomains: SettingsDraftCategory[];
+}
+
+export interface ApplySettingsTransactionOptions {
+  domainOrder?: SettingsDraftCategory[];
+  domainWriters?: Partial<Record<SettingsDraftCategory, (draft: SettingsDraft) => void>>;
+}
+
+const DEFAULT_DOMAIN_ORDER: SettingsDraftCategory[] = [
+  'connection',
+  'preferences',
+  'performance',
+  'accessibility',
+  'notifications',
+  'search',
+  'location',
+];
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'Unknown error.';
+}
+
+export function applySettingsTransaction(
+  draft: SettingsDraft,
+  options: ApplySettingsTransactionOptions = {},
+): ApplySettingsTransactionResult {
+  const settingsStore = useSettingsStore.getState();
+  const mountStore = useMountStore.getState();
+
+  const order = options.domainOrder ?? DEFAULT_DOMAIN_ORDER;
+  const appliedDomains: SettingsDraftCategory[] = [];
+  const failedDomains: DomainApplyFailure[] = [];
+  const rolledBackDomains: SettingsDraftCategory[] = [];
+
+  const settingsSnapshot = {
+    connection: { ...settingsStore.connection },
+    backendProtocol: settingsStore.backendProtocol,
+    preferences: { ...settingsStore.preferences },
+    performance: { ...settingsStore.performance },
+    accessibility: { ...settingsStore.accessibility },
+    notifications: { ...settingsStore.notifications },
+    search: { ...settingsStore.search },
+  };
+
+  const locationSnapshot = {
+    latitude: mountStore.profileInfo?.AstrometrySettings?.Latitude ?? 0,
+    longitude: mountStore.profileInfo?.AstrometrySettings?.Longitude ?? 0,
+    elevation: mountStore.profileInfo?.AstrometrySettings?.Elevation ?? 0,
+  };
+
+  const defaultWriters: Record<SettingsDraftCategory, (currentDraft: SettingsDraft) => void> = {
+    connection: (currentDraft) => {
+      settingsStore.setConnection(currentDraft.connection);
+      settingsStore.setBackendProtocol(currentDraft.backendProtocol);
+    },
+    preferences: (currentDraft) => {
+      settingsStore.setPreferences(currentDraft.preferences);
+    },
+    performance: (currentDraft) => {
+      settingsStore.setPerformanceSettings(currentDraft.performance);
+    },
+    accessibility: (currentDraft) => {
+      settingsStore.setAccessibilitySettings(currentDraft.accessibility);
+    },
+    notifications: (currentDraft) => {
+      settingsStore.setNotificationSettings(currentDraft.notifications);
+    },
+    search: (currentDraft) => {
+      settingsStore.setSearchSettings(currentDraft.search);
+    },
+    location: (currentDraft) => {
+      const currentProfile = useMountStore.getState().profileInfo;
+      mountStore.setProfileInfo({
+        ...currentProfile,
+        AstrometrySettings: {
+          ...currentProfile.AstrometrySettings,
+          Latitude: currentDraft.location.latitude,
+          Longitude: currentDraft.location.longitude,
+          Elevation: currentDraft.location.elevation,
+        },
+      });
+    },
+  };
+
+  const rollbackWriters: Record<SettingsDraftCategory, () => void> = {
+    connection: () => {
+      settingsStore.setConnection(settingsSnapshot.connection);
+      settingsStore.setBackendProtocol(settingsSnapshot.backendProtocol);
+    },
+    preferences: () => {
+      settingsStore.setPreferences(settingsSnapshot.preferences);
+    },
+    performance: () => {
+      settingsStore.setPerformanceSettings(settingsSnapshot.performance);
+    },
+    accessibility: () => {
+      settingsStore.setAccessibilitySettings(settingsSnapshot.accessibility);
+    },
+    notifications: () => {
+      settingsStore.setNotificationSettings(settingsSnapshot.notifications);
+    },
+    search: () => {
+      settingsStore.setSearchSettings(settingsSnapshot.search);
+    },
+    location: () => {
+      const currentProfile = useMountStore.getState().profileInfo;
+      mountStore.setProfileInfo({
+        ...currentProfile,
+        AstrometrySettings: {
+          ...currentProfile.AstrometrySettings,
+          Latitude: locationSnapshot.latitude,
+          Longitude: locationSnapshot.longitude,
+          Elevation: locationSnapshot.elevation,
+        },
+      });
+    },
+  };
+
+  try {
+    for (const domain of order) {
+      const writer = options.domainWriters?.[domain] ?? defaultWriters[domain];
+      writer(draft);
+      appliedDomains.push(domain);
+    }
+  } catch (error) {
+    const failingDomain = order[appliedDomains.length] ?? order[order.length - 1] ?? 'connection';
+    failedDomains.push({
+      domain: failingDomain,
+      error: toErrorMessage(error),
+    });
+
+    for (const domain of [...appliedDomains].reverse()) {
+      try {
+        rollbackWriters[domain]();
+        rolledBackDomains.push(domain);
+      } catch {
+        // Rollback is best-effort; preserve original failure as the primary signal.
+      }
+    }
+
+    return {
+      success: false,
+      appliedDomains,
+      failedDomains,
+      rolledBackDomains,
+    };
+  }
+
+  return {
+    success: true,
+    appliedDomains,
+    failedDomains,
+    rolledBackDomains,
+  };
+}
+

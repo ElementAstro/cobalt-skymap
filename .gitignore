@@ -59,7 +59,10 @@ next-env.d.ts
 # project specific
 /llmdoc/
 /.worktrees/
+/src-tauri/gen/
+/.gradle_sandbox/
 
 # Windows reserved device names
 nul
 .ace-tool/
+openspec

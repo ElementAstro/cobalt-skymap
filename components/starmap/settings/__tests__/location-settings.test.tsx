@@ -4,6 +4,13 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
+const mockSetLocation = jest.fn();
+const defaultLocationState = {
+  latitude: 40.7128,
+  longitude: -74.006,
+  elevation: 100,
+};
+
 const defaultMountState = {
   profileInfo: {
     AstrometrySettings: {
@@ -29,6 +36,13 @@ jest.mock('@/lib/stores', () => ({
     (selector: (state: unknown) => unknown) => mockUseMountStore(selector),
     { getState: () => mockUseMountStore.getState() }
   ),
+}));
+
+jest.mock('@/lib/hooks/use-settings-draft', () => ({
+  useLocationDraftModel: () => ({
+    location: defaultLocationState,
+    setLocation: mockSetLocation,
+  }),
 }));
 
 jest.mock('@/components/ui/button', () => ({
@@ -260,25 +274,8 @@ describe('LocationSettings permission edge cases', () => {
 });
 
 describe('LocationSettings commitLocation', () => {
-  let mockSetProfileInfo: jest.Mock;
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSetProfileInfo = jest.fn();
-    const state = {
-      profileInfo: {
-        AstrometrySettings: {
-          Latitude: 40.7128,
-          Longitude: -74.006,
-          Elevation: 100,
-        },
-      },
-      setProfileInfo: mockSetProfileInfo,
-    };
-    mockUseMountStore.mockImplementation((selector) => {
-      return selector ? selector(state) : state;
-    });
-    mockUseMountStore.getState.mockReturnValue(state);
     mockPermissionsQuery.mockResolvedValue({
       state: 'prompt',
       addEventListener: jest.fn(),
@@ -290,7 +287,7 @@ describe('LocationSettings commitLocation', () => {
     const inputs = screen.getAllByTestId('input');
     // First number input is latitude
     fireEvent.blur(inputs[0], { target: { value: '35.5' } });
-    expect(mockSetProfileInfo).toHaveBeenCalled();
+    expect(mockSetLocation).toHaveBeenCalledWith({ latitude: 35.5 });
   });
 
   it('commits longitude on blur', async () => {
@@ -298,7 +295,7 @@ describe('LocationSettings commitLocation', () => {
     const inputs = screen.getAllByTestId('input');
     // Second number input is longitude
     fireEvent.blur(inputs[1], { target: { value: '120.3' } });
-    expect(mockSetProfileInfo).toHaveBeenCalled();
+    expect(mockSetLocation).toHaveBeenCalledWith({ longitude: 120.3 });
   });
 
   it('commits elevation on blur', async () => {
@@ -306,47 +303,34 @@ describe('LocationSettings commitLocation', () => {
     const inputs = screen.getAllByTestId('input');
     // Third number input is elevation
     fireEvent.blur(inputs[2], { target: { value: '500' } });
-    expect(mockSetProfileInfo).toHaveBeenCalled();
+    expect(mockSetLocation).toHaveBeenCalledWith({ elevation: 500 });
   });
 
   it('clamps latitude to valid range [-90, 90]', async () => {
     render(<LocationSettings />);
     const inputs = screen.getAllByTestId('input');
     fireEvent.blur(inputs[0], { target: { value: '100' } });
-    // Should call with clamped value
-    const call = mockSetProfileInfo.mock.calls[0]?.[0];
-    if (call) {
-      expect(call.AstrometrySettings.Latitude).toBeLessThanOrEqual(90);
-    }
+    expect(mockSetLocation).toHaveBeenCalledWith({ latitude: 90 });
   });
 
   it('clamps longitude to valid range [-180, 180]', async () => {
     render(<LocationSettings />);
     const inputs = screen.getAllByTestId('input');
     fireEvent.blur(inputs[1], { target: { value: '200' } });
-    const call = mockSetProfileInfo.mock.calls[0]?.[0];
-    if (call) {
-      expect(call.AstrometrySettings.Longitude).toBeLessThanOrEqual(180);
-    }
+    expect(mockSetLocation).toHaveBeenCalledWith({ longitude: 180 });
   });
 
   it('handles NaN input as 0', async () => {
     render(<LocationSettings />);
     const inputs = screen.getAllByTestId('input');
     fireEvent.blur(inputs[0], { target: { value: 'abc' } });
-    const call = mockSetProfileInfo.mock.calls[0]?.[0];
-    if (call) {
-      expect(call.AstrometrySettings.Latitude).toBe(0);
-    }
+    expect(mockSetLocation).toHaveBeenCalledWith({ latitude: 0 });
   });
 });
 
 describe('LocationSettings geolocation callbacks', () => {
-  let mockSetProfileInfo: jest.Mock;
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSetProfileInfo = jest.fn();
     const state = {
       profileInfo: {
         AstrometrySettings: {
@@ -355,7 +339,7 @@ describe('LocationSettings geolocation callbacks', () => {
           Elevation: 0,
         },
       },
-      setProfileInfo: mockSetProfileInfo,
+      setProfileInfo: jest.fn(),
     };
     mockUseMountStore.mockImplementation((selector) => {
       return selector ? selector(state) : state;
@@ -382,15 +366,11 @@ describe('LocationSettings geolocation callbacks', () => {
     const locationButton = buttons.find(b => b.textContent?.includes('settings.refreshLocation') || b.textContent?.includes('settings.getLocation'));
     if (locationButton) {
       fireEvent.click(locationButton);
-      expect(mockSetProfileInfo).toHaveBeenCalledWith(
-        expect.objectContaining({
-          AstrometrySettings: expect.objectContaining({
-            Latitude: 51.5074,
-            Longitude: -0.1278,
-            Elevation: 11,
-          }),
-        })
-      );
+      expect(mockSetLocation).toHaveBeenCalledWith({
+        latitude: 51.5074,
+        longitude: -0.1278,
+        elevation: 11,
+      });
     }
   });
 
@@ -441,10 +421,10 @@ describe('LocationSettings geolocation callbacks', () => {
     const locationButton = buttons.find(b => b.textContent?.includes('settings.refreshLocation') || b.textContent?.includes('settings.getLocation'));
     if (locationButton) {
       fireEvent.click(locationButton);
-      const call = mockSetProfileInfo.mock.calls[0]?.[0];
-      if (call) {
-        expect(call.AstrometrySettings.Elevation).toBe(0);
-      }
+      expect(mockSetLocation).toHaveBeenCalledWith({
+        latitude: 48.8566,
+        longitude: 2.3522,
+      });
     }
   });
 });

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getZustandStorage } from '@/lib/storage';
 import { createLogger } from '@/lib/logger';
+import { normalizeSessionDraft, validateSessionDraft } from '@/lib/astronomy/session-draft-validator';
 import type { OptimizationStrategy } from '@/types/starmap/planning';
 import type {
   ExecutionSummary,
@@ -223,6 +224,117 @@ function upsertExecution(
   return [nextExecution, ...filtered];
 }
 
+function normalizePlanDraftShape(
+  plan: Omit<SavedSessionPlan, 'id' | 'createdAt' | 'updatedAt'>,
+) {
+  const parsedPlanDate = new Date(plan.planDate);
+  const report = validateSessionDraft({
+    planDate: plan.planDate,
+    strategy: plan.strategy,
+    constraints: plan.constraints ?? {
+      minAltitude: plan.minAltitude,
+      minImagingTime: plan.minImagingTime,
+    },
+    excludedTargetIds: plan.excludedTargetIds,
+    manualEdits: plan.manualEdits ?? [],
+    notes: plan.notes,
+    weatherSnapshot: plan.weatherSnapshot,
+  }, {
+    fallbackDate: Number.isFinite(parsedPlanDate.getTime()) ? parsedPlanDate : new Date(),
+  });
+  return {
+    ...plan,
+    planDate: report.draft.planDate,
+    strategy: report.draft.strategy,
+    minAltitude: report.draft.constraints.minAltitude,
+    minImagingTime: report.draft.constraints.minImagingTime,
+    constraints: report.draft.constraints,
+    planningMode: report.draft.manualEdits.length > 0 ? (plan.planningMode ?? 'manual') : (plan.planningMode ?? 'auto'),
+    excludedTargetIds: report.draft.excludedTargetIds,
+    notes: report.draft.notes,
+    weatherSnapshot: report.draft.weatherSnapshot,
+    manualEdits: report.draft.manualEdits,
+  };
+}
+
+const TERMINAL_TARGET_STATUSES: ExecutionTargetStatus[] = ['completed', 'skipped', 'failed'];
+
+const TARGET_STATUS_TRANSITIONS: Record<ExecutionTargetStatus, ExecutionTargetStatus[]> = {
+  planned: ['in_progress', 'completed', 'skipped', 'failed'],
+  in_progress: ['completed', 'skipped', 'failed'],
+  completed: [],
+  skipped: [],
+  failed: ['in_progress'],
+};
+
+const EXECUTION_STATUS_TRANSITIONS: Record<SessionExecutionStatus, SessionExecutionStatus[]> = {
+  draft: ['ready', 'active', 'cancelled', 'archived'],
+  ready: ['active', 'cancelled', 'archived'],
+  active: ['completed', 'cancelled', 'archived'],
+  completed: ['archived'],
+  cancelled: ['archived'],
+  archived: [],
+};
+
+function canTransitionTargetStatus(
+  from: ExecutionTargetStatus,
+  to: ExecutionTargetStatus,
+): boolean {
+  return from === to || TARGET_STATUS_TRANSITIONS[from].includes(to);
+}
+
+function canTransitionExecutionStatus(
+  from: SessionExecutionStatus,
+  to: SessionExecutionStatus,
+): boolean {
+  return from === to || EXECUTION_STATUS_TRANSITIONS[from].includes(to);
+}
+
+function buildExecutionSummary(targets: PlannedSessionExecutionTarget[]): ExecutionSummary {
+  const completedTargets = targets.filter((target) => target.status === 'completed').length;
+  const skippedTargets = targets.filter((target) => target.status === 'skipped').length;
+  const failedTargets = targets.filter((target) => target.status === 'failed').length;
+  return {
+    completedTargets,
+    skippedTargets,
+    failedTargets,
+    totalTargets: targets.length,
+    totalObservations: targets.reduce((sum, target) => sum + target.observationIds.length, 0),
+  };
+}
+
+function normalizeExecutionStatuses(execution: PlannedSessionExecution): PlannedSessionExecution {
+  const targets = execution.targets.map((target) => {
+    const status: ExecutionTargetStatus = (
+      target.status === 'planned'
+      || target.status === 'in_progress'
+      || target.status === 'completed'
+      || target.status === 'skipped'
+      || target.status === 'failed'
+    ) ? target.status : 'planned';
+    return {
+      ...target,
+      status,
+    };
+  });
+
+  const status: SessionExecutionStatus = (
+    execution.status === 'draft'
+    || execution.status === 'ready'
+    || execution.status === 'active'
+    || execution.status === 'completed'
+    || execution.status === 'archived'
+    || execution.status === 'cancelled'
+  ) ? execution.status : 'ready';
+
+  return {
+    ...execution,
+    status,
+    targets,
+    summary: execution.summary ?? buildExecutionSummary(targets),
+  };
+}
+
 export const useSessionPlanStore = create<SessionPlanState>()(
   persist(
     (set, get) => ({
@@ -235,8 +347,9 @@ export const useSessionPlanStore = create<SessionPlanState>()(
       savePlan: (plan) => {
         const id = generatePlanId();
         const now = new Date().toISOString();
+        const normalizedPlan = normalizePlanDraftShape(plan);
         const newPlan: SavedSessionPlan = {
-          ...plan,
+          ...normalizedPlan,
           id,
           createdAt: now,
           updatedAt: now,
@@ -311,35 +424,41 @@ export const useSessionPlanStore = create<SessionPlanState>()(
       },
 
       importPlanV2: (draft, name) => {
-        const fallbackName = name ?? `Session ${new Date(draft.planDate).toLocaleDateString()}`;
+        const normalizedDraft = normalizeSessionDraft(draft, {
+          fallbackDate: new Date(draft.planDate),
+        });
+        const fallbackName = name ?? `Session ${new Date(normalizedDraft.planDate).toLocaleDateString()}`;
         return get().savePlan({
           name: fallbackName,
-          planDate: draft.planDate,
+          planDate: normalizedDraft.planDate,
           latitude: 0,
           longitude: 0,
-          strategy: draft.strategy,
-          minAltitude: draft.constraints.minAltitude,
-          minImagingTime: draft.constraints.minImagingTime,
-          constraints: draft.constraints,
-          planningMode: draft.manualEdits.length > 0 ? 'manual' : 'auto',
+          strategy: normalizedDraft.strategy,
+          minAltitude: normalizedDraft.constraints.minAltitude,
+          minImagingTime: normalizedDraft.constraints.minImagingTime,
+          constraints: normalizedDraft.constraints,
+          planningMode: normalizedDraft.manualEdits.length > 0 ? 'manual' : 'auto',
           targets: [],
-          excludedTargetIds: draft.excludedTargetIds,
+          excludedTargetIds: normalizedDraft.excludedTargetIds,
           totalImagingTime: 0,
           nightCoverage: 0,
           efficiency: 0,
-          notes: draft.notes,
-          weatherSnapshot: draft.weatherSnapshot,
-          manualEdits: draft.manualEdits,
+          notes: normalizedDraft.notes,
+          weatherSnapshot: normalizedDraft.weatherSnapshot,
+          manualEdits: normalizedDraft.manualEdits,
         });
       },
 
       saveTemplate: (template) => {
         const id = generateTemplateId();
         const now = new Date().toISOString();
+        const normalizedDraft = normalizeSessionDraft(template.draft, {
+          fallbackDate: new Date(template.draft.planDate),
+        });
         const nextTemplate: SavedSessionTemplate = {
           id,
           name: template.name,
-          draft: template.draft,
+          draft: normalizedDraft,
           createdAt: now,
           updatedAt: now,
         };
@@ -364,23 +483,43 @@ export const useSessionPlanStore = create<SessionPlanState>()(
 
       createExecutionFromPlan: (plan, context = {}) => {
         const now = new Date().toISOString();
+        const normalizedPlan = normalizePlanDraftShape({
+          name: plan.name,
+          planDate: plan.planDate,
+          latitude: plan.latitude,
+          longitude: plan.longitude,
+          strategy: plan.strategy,
+          minAltitude: plan.minAltitude,
+          minImagingTime: plan.minImagingTime,
+          constraints: plan.constraints,
+          planningMode: plan.planningMode,
+          targets: plan.targets,
+          excludedTargetIds: plan.excludedTargetIds,
+          totalImagingTime: plan.totalImagingTime,
+          nightCoverage: plan.nightCoverage,
+          efficiency: plan.efficiency,
+          notes: plan.notes,
+          weatherSnapshot: plan.weatherSnapshot,
+          manualEdits: plan.manualEdits,
+        });
         const execution: PlannedSessionExecution = {
           id: generateExecutionId(),
           sourcePlanId: plan.id,
           sourcePlanName: plan.name,
           status: context.status ?? 'ready',
-          planDate: plan.planDate,
+          planDate: normalizedPlan.planDate,
           locationId: context.locationId,
           locationName: context.locationName,
-          notes: plan.notes,
-          weatherSnapshot: plan.weatherSnapshot,
+          notes: normalizedPlan.notes,
+          weatherSnapshot: normalizedPlan.weatherSnapshot,
           createdAt: now,
           updatedAt: now,
           targets: createExecutionTargets(plan),
         };
+        execution.summary = buildExecutionSummary(execution.targets);
 
         set((state) => ({
-          executions: upsertExecution(state.executions, execution),
+          executions: upsertExecution(state.executions, normalizeExecutionStatuses(execution)),
           activeExecutionId: execution.id,
         }));
         logger.info('Session execution created', {
@@ -407,7 +546,7 @@ export const useSessionPlanStore = create<SessionPlanState>()(
       syncExecutionFromObservationSession: (session) => {
         if (!session.source_plan_id) return null;
 
-        const execution: PlannedSessionExecution = {
+        const rawExecution: PlannedSessionExecution = {
           id: session.id,
           sourcePlanId: session.source_plan_id,
           sourcePlanName: session.source_plan_name ?? 'Observation Session',
@@ -430,6 +569,7 @@ export const useSessionPlanStore = create<SessionPlanState>()(
             : undefined,
           targets: (session.execution_targets ?? []).map(mapSnapshotTarget),
         };
+        const execution = normalizeExecutionStatuses(rawExecution);
 
         set((state) => ({
           executions: upsertExecution(state.executions, execution),
@@ -445,12 +585,46 @@ export const useSessionPlanStore = create<SessionPlanState>()(
               ? execution
               : {
                   ...execution,
-                  updatedAt: new Date().toISOString(),
-                  targets: execution.targets.map((target) =>
-                    target.targetId === targetId
-                      ? { ...target, ...updates }
-                      : target,
-                  ),
+                  ...(() => {
+                    const now = new Date().toISOString();
+                    const targets = execution.targets.map((target) => {
+                      if (target.targetId !== targetId) return target;
+                      const requestedStatus = updates.status ?? target.status;
+                      if (updates.status && !canTransitionTargetStatus(target.status, updates.status)) {
+                        logger.warn('Rejected invalid execution target transition', {
+                          executionId,
+                          targetId,
+                          from: target.status,
+                          to: updates.status,
+                        });
+                        return target;
+                      }
+                      const next: PlannedSessionExecutionTarget = {
+                        ...target,
+                        ...updates,
+                        status: requestedStatus,
+                      };
+                      if (requestedStatus === 'in_progress' && !next.actualStart) {
+                        next.actualStart = now;
+                      }
+                      if (TERMINAL_TARGET_STATUSES.includes(requestedStatus) && !next.actualEnd) {
+                        next.actualEnd = now;
+                      }
+                      return next;
+                    });
+                    const summary = buildExecutionSummary(targets);
+                    const allDone = targets.length > 0 && targets.every((target) => TERMINAL_TARGET_STATUSES.includes(target.status));
+                    const nextStatus = allDone && canTransitionExecutionStatus(execution.status, 'completed')
+                      ? 'completed'
+                      : execution.status;
+                    return {
+                      updatedAt: now,
+                      targets,
+                      summary,
+                      status: nextStatus,
+                      endedAt: nextStatus === 'completed' ? (execution.endedAt ?? now) : execution.endedAt,
+                    };
+                  })(),
                 },
           ),
         }));
@@ -463,18 +637,38 @@ export const useSessionPlanStore = create<SessionPlanState>()(
               ? execution
               : {
                   ...execution,
-                  updatedAt: new Date().toISOString(),
-                  targets: execution.targets.map((target) =>
-                    target.targetId !== targetId
-                      ? target
-                      : {
-                          ...target,
-                          status: target.status === 'planned' ? 'completed' : target.status,
-                          observationIds: target.observationIds.includes(observationId)
-                            ? target.observationIds
-                            : [...target.observationIds, observationId],
-                        },
-                  ),
+                  ...(() => {
+                    const now = new Date().toISOString();
+                    const targets = execution.targets.map((target) => {
+                      if (target.targetId !== targetId) return target;
+                      const nextStatus: ExecutionTargetStatus =
+                        target.status === 'planned' ? 'completed' : target.status;
+                      const canApply = canTransitionTargetStatus(target.status, nextStatus);
+                      if (!canApply) return target;
+                      return {
+                        ...target,
+                        status: nextStatus,
+                        observationIds: target.observationIds.includes(observationId)
+                          ? target.observationIds
+                          : [...target.observationIds, observationId],
+                        actualEnd: TERMINAL_TARGET_STATUSES.includes(nextStatus)
+                          ? (target.actualEnd ?? now)
+                          : target.actualEnd,
+                      };
+                    });
+                    const summary = buildExecutionSummary(targets);
+                    const allDone = targets.length > 0 && targets.every((target) => TERMINAL_TARGET_STATUSES.includes(target.status));
+                    const nextStatus = allDone && canTransitionExecutionStatus(execution.status, 'completed')
+                      ? 'completed'
+                      : execution.status;
+                    return {
+                      updatedAt: now,
+                      targets,
+                      summary,
+                      status: nextStatus,
+                      endedAt: nextStatus === 'completed' ? (execution.endedAt ?? now) : execution.endedAt,
+                    };
+                  })(),
                 },
           ),
         }));
@@ -485,13 +679,24 @@ export const useSessionPlanStore = create<SessionPlanState>()(
           executions: state.executions.map((execution) =>
             execution.id !== executionId
               ? execution
-              : {
+              : (() => {
+                if (!canTransitionExecutionStatus(execution.status, 'completed')) {
+                  logger.warn('Rejected invalid execution status transition', {
+                    executionId,
+                    from: execution.status,
+                    to: 'completed',
+                  });
+                  return execution;
+                }
+                const now = new Date().toISOString();
+                return {
                   ...execution,
-                  status: 'completed',
-                  summary,
-                  endedAt: execution.endedAt ?? new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                },
+                  status: 'completed' as const,
+                  summary: summary ?? buildExecutionSummary(execution.targets),
+                  endedAt: execution.endedAt ?? now,
+                  updatedAt: now,
+                };
+              })(),
           ),
         }));
       },
@@ -501,11 +706,21 @@ export const useSessionPlanStore = create<SessionPlanState>()(
           executions: state.executions.map((execution) =>
             execution.id !== executionId
               ? execution
-              : {
+              : (() => {
+                if (!canTransitionExecutionStatus(execution.status, 'archived')) {
+                  logger.warn('Rejected invalid execution status transition', {
+                    executionId,
+                    from: execution.status,
+                    to: 'archived',
+                  });
+                  return execution;
+                }
+                return {
                   ...execution,
-                  status: 'archived',
+                  status: 'archived' as const,
                   updatedAt: new Date().toISOString(),
-                },
+                };
+              })(),
           ),
           activeExecutionId: state.activeExecutionId === executionId ? null : state.activeExecutionId,
         }));
@@ -513,33 +728,78 @@ export const useSessionPlanStore = create<SessionPlanState>()(
     }),
     {
       name: 'skymap-session-plans',
-      version: 3,
+      version: 4,
       storage: getZustandStorage<Partial<SessionPlanState>>(),
       migrate: (persistedState: unknown, version: number) => {
         const state = (persistedState ?? {}) as Partial<SessionPlanState>;
+
+        const normalizedPlans: SavedSessionPlan[] = (state.savedPlans ?? [])
+          .map((plan) => {
+            if (!plan) return null;
+            const { id, createdAt, updatedAt, ...payload } = plan as SavedSessionPlan;
+            if (!id || !createdAt || !updatedAt) return null;
+            const normalizedPayload = normalizePlanDraftShape(payload);
+            return {
+              id,
+              createdAt,
+              updatedAt,
+              ...normalizedPayload,
+              targets: Array.isArray(plan.targets) ? plan.targets : [],
+            } as SavedSessionPlan;
+          })
+          .filter((plan): plan is SavedSessionPlan => Boolean(plan));
+
+        const normalizedTemplates: SavedSessionTemplate[] = (state.templates ?? [])
+          .map((template) => {
+            if (!template?.id || !template?.name || !template?.createdAt || !template?.updatedAt) return null;
+            return {
+              id: template.id,
+              name: template.name,
+              createdAt: template.createdAt,
+              updatedAt: template.updatedAt,
+              draft: normalizeSessionDraft(template.draft, {
+                fallbackDate: new Date(),
+              }),
+            };
+          })
+          .filter((template): template is SavedSessionTemplate => Boolean(template));
+
+        const normalizedExecutions: PlannedSessionExecution[] = (state.executions ?? [])
+          .map((execution) => (execution ? normalizeExecutionStatuses(execution) : null))
+          .filter((execution): execution is PlannedSessionExecution => Boolean(execution));
+
         if (version < 2) {
           return {
-            savedPlans: state.savedPlans ?? [],
+            savedPlans: normalizedPlans,
             activePlanId: state.activePlanId ?? null,
-            templates: [],
+            templates: normalizedTemplates,
             executions: [],
             activeExecutionId: null,
           } as Partial<SessionPlanState>;
         }
         if (version < 3) {
           return {
-            savedPlans: state.savedPlans ?? [],
+            savedPlans: normalizedPlans,
             activePlanId: state.activePlanId ?? null,
-            templates: state.templates ?? [],
+            templates: normalizedTemplates,
             executions: [],
             activeExecutionId: null,
           } as Partial<SessionPlanState>;
         }
+        if (version < 4) {
+          return {
+            savedPlans: normalizedPlans,
+            activePlanId: state.activePlanId ?? null,
+            templates: normalizedTemplates,
+            executions: normalizedExecutions,
+            activeExecutionId: state.activeExecutionId ?? null,
+          } as Partial<SessionPlanState>;
+        }
         return {
-          savedPlans: state.savedPlans ?? [],
+          savedPlans: normalizedPlans,
           activePlanId: state.activePlanId ?? null,
-          templates: state.templates ?? [],
-          executions: state.executions ?? [],
+          templates: normalizedTemplates,
+          executions: normalizedExecutions,
           activeExecutionId: state.activeExecutionId ?? null,
         } as Partial<SessionPlanState>;
       },

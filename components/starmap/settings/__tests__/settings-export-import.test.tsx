@@ -159,8 +159,12 @@ describe('SettingsExportImport', () => {
       expect(mockClick).toHaveBeenCalled();
       const exportCall = stringifySpy.mock.calls.find(([, , space]) => space === 2);
       expect(exportCall?.[0]).toEqual(expect.objectContaining({
-        version: 4,
+        version: 5,
         themeMode: 'dark',
+        metadata: expect.objectContaining({
+          schemaVersion: 5,
+          domains: expect.any(Array),
+        }),
         settings: expect.objectContaining({
           skyEngine: expect.any(String),
           aladinDisplay: expect.any(Object),

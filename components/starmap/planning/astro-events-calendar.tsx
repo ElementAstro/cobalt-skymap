@@ -377,7 +377,7 @@ export function AstroEventsCalendar() {
           <Calendar className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[640px] max-h-[80vh] overflow-hidden flex flex-col" data-testid="dialog-content">
+      <DialogContent className="sm:max-w-[640px] max-h-[80vh] max-h-[80dvh] overflow-hidden flex flex-col" data-testid="dialog-content">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5" />

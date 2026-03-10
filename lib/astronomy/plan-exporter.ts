@@ -128,6 +128,9 @@ export interface PlanExportOptions {
   locationName?: string;
   latitude: number;
   longitude: number;
+  sourcePlanId?: string;
+  sourcePlanName?: string;
+  exportedAt?: string;
 }
 
 // ============================================================================
@@ -136,9 +139,12 @@ export interface PlanExportOptions {
 
 function exportAsText(plan: SessionPlan, options: PlanExportOptions): string {
   const dateStr = options.planDate.toLocaleDateString();
+  const exportedAt = options.exportedAt ?? new Date().toISOString();
   const lines: string[] = [
     `Session Plan - ${dateStr}`,
     '='.repeat(40),
+    `Exported At: ${exportedAt}`,
+    ...(options.sourcePlanName ? [`Source Plan: ${options.sourcePlanName}`] : []),
     `Targets: ${plan.targets.length}`,
     `Total Time: ${formatDuration(plan.totalImagingTime)}`,
     `Coverage: ${plan.nightCoverage.toFixed(0)}%`,
@@ -176,6 +182,7 @@ function exportAsText(plan: SessionPlan, options: PlanExportOptions): string {
 
 function exportAsMarkdown(plan: SessionPlan, options: PlanExportOptions): string {
   const dateStr = options.planDate.toLocaleDateString();
+  const exportedAt = options.exportedAt ?? new Date().toISOString();
   const lines: string[] = [
     `# Session Plan — ${dateStr}`,
     '',
@@ -187,6 +194,8 @@ function exportAsMarkdown(plan: SessionPlan, options: PlanExportOptions): string
     `| Total Imaging Time | ${formatDuration(plan.totalImagingTime)} |`,
     `| Night Coverage | ${plan.nightCoverage.toFixed(0)}% |`,
     `| Efficiency | ${plan.efficiency.toFixed(0)}% |`,
+    `| Exported At | ${exportedAt} |`,
+    ...(options.sourcePlanName ? [`| Source Plan | ${options.sourcePlanName} |`] : []),
     `| Location | ${options.latitude.toFixed(4)}°, ${options.longitude.toFixed(4)}° |`,
     '',
     '## Schedule',
@@ -218,10 +227,15 @@ function exportAsMarkdown(plan: SessionPlan, options: PlanExportOptions): string
 // ============================================================================
 
 function exportAsJSON(plan: SessionPlan, options: PlanExportOptions): string {
+  const exportedAt = options.exportedAt ?? new Date().toISOString();
   const exportData = {
     exportVersion: 1,
-    exportDate: new Date().toISOString(),
+    exportDate: exportedAt,
     planDate: options.planDate.toISOString(),
+    source: {
+      planId: options.sourcePlanId,
+      planName: options.sourcePlanName,
+    },
     location: {
       name: options.locationName,
       latitude: options.latitude,
@@ -266,10 +280,12 @@ function exportAsJSON(plan: SessionPlan, options: PlanExportOptions): string {
 
 function exportAsNinaXml(plan: SessionPlan, options: PlanExportOptions): string {
   const escXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const exportedAt = options.exportedAt ?? new Date().toISOString();
 
   const lines: string[] = [
     '<?xml version="1.0" encoding="utf-8"?>',
-    `<!-- Exported from SkyMap Session Planner - ${options.planDate.toLocaleDateString()} -->`,
+    `<!-- Exported from SkyMap Session Planner - ${options.planDate.toLocaleDateString()} (${exportedAt}) -->`,
+    ...(options.sourcePlanName ? [`<!-- Source Plan: ${escXml(options.sourcePlanName)} -->`] : []),
     '<ArrayOfCaptureSequenceList xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">',
   ];
 
@@ -321,9 +337,10 @@ function escapeCsv(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function exportAsCsv(plan: SessionPlan): string {
+function exportAsCsv(plan: SessionPlan, options: PlanExportOptions): string {
+  const exportedAt = options.exportedAt ?? new Date().toISOString();
   const rows = [
-    'order,name,ra_deg,dec_deg,ra_hms,dec_dms,start_time,end_time,duration_hours,max_altitude_deg,moon_distance_deg,feasibility_score,filter,single_exposure_sec,subframes,planned_minutes,desired_total_minutes',
+    'order,name,ra_deg,dec_deg,ra_hms,dec_dms,start_time,end_time,duration_hours,max_altitude_deg,moon_distance_deg,feasibility_score,filter,single_exposure_sec,subframes,planned_minutes,desired_total_minutes,plan_date_iso,exported_at_iso,source_plan_id,source_plan_name',
   ];
 
   for (const target of plan.targets) {
@@ -346,6 +363,10 @@ function exportAsCsv(plan: SessionPlan): string {
       exposure.subFrames,
       getPlannedMinutes(target),
       getDesiredMinutes(target) ?? '',
+      escapeCsv(options.planDate.toISOString()),
+      escapeCsv(exportedAt),
+      escapeCsv(options.sourcePlanId ?? ''),
+      escapeCsv(options.sourcePlanName ?? ''),
     ].join(','));
   }
 
@@ -378,21 +399,25 @@ function exportAsSgpCsv(plan: SessionPlan): string {
 // ============================================================================
 
 export function exportSessionPlan(plan: SessionPlan, options: PlanExportOptions): string {
+  const normalizedOptions: PlanExportOptions = {
+    ...options,
+    exportedAt: options.exportedAt ?? new Date().toISOString(),
+  };
   switch (options.format) {
     case 'text':
-      return exportAsText(plan, options);
+      return exportAsText(plan, normalizedOptions);
     case 'markdown':
-      return exportAsMarkdown(plan, options);
+      return exportAsMarkdown(plan, normalizedOptions);
     case 'json':
-      return exportAsJSON(plan, options);
+      return exportAsJSON(plan, normalizedOptions);
     case 'nina-xml':
-      return exportAsNinaXml(plan, options);
+      return exportAsNinaXml(plan, normalizedOptions);
     case 'csv':
-      return exportAsCsv(plan);
+      return exportAsCsv(plan, normalizedOptions);
     case 'sgp-csv':
       return exportAsSgpCsv(plan);
     default:
-      return exportAsText(plan, options);
+      return exportAsText(plan, normalizedOptions);
   }
 }
 

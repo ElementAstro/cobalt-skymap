@@ -18,7 +18,7 @@ import {
   useAladinOverlays,
   useAladinSettingsSync,
 } from '@/lib/hooks/aladin';
-import { LoadingOverlay } from './components';
+import { HoverObjectLabel, LoadingOverlay } from './components';
 
 type AladinInstance = ReturnType<typeof A.aladin>;
 
@@ -249,17 +249,12 @@ export const AladinCanvas = forwardRef<SkyMapCanvasRef, SkyMapCanvasProps>(
     // Render
     // ========================================================================
     return (
-      <div ref={containerRef} className="relative w-full h-full" id="aladin-lite-container">
+      <div ref={containerRef} className="relative w-full h-full touch-none" id="aladin-lite-container">
         {/* Aladin Lite renders its own canvas elements inside this div */}
 
         {/* Hover Tooltip */}
         {hoverInfo && (
-          <div
-            className="absolute pointer-events-none z-50 px-2 py-1 rounded bg-black/80 text-white text-xs whitespace-nowrap"
-            style={{ left: hoverInfo.x + 12, top: hoverInfo.y - 8 }}
-          >
-            {hoverInfo.name}
-          </div>
+          <HoverObjectLabel name={hoverInfo.name} x={hoverInfo.x} y={hoverInfo.y} />
         )}
 
         {/* Loading Overlay */}

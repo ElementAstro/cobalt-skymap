@@ -12,6 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { geocodingService } from '@/lib/services/geocoding-service';
 import type { SearchCapabilities } from '@/lib/services/geocoding-service';
+import { acquireCurrentLocation, type LocationAcquisitionStatus } from '@/lib/services/location-acquisition';
 import type { GeocodingResult } from '@/lib/services/map-providers/base-map-provider';
 import type { Coordinates, LocationResult, SearchHistory } from '@/types/starmap/map';
 import {
@@ -60,6 +61,8 @@ function LocationSearchComponent({
   const [searchCapabilities, setSearchCapabilities] = useState<SearchCapabilities>(() =>
     geocodingService.getSearchCapabilities()
   );
+  const [currentLocationErrorStatus, setCurrentLocationErrorStatus] =
+    useState<Exclude<LocationAcquisitionStatus, 'success'> | null>(null);
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -161,6 +164,20 @@ function LocationSearchComponent({
     }
   }, [locale]);
 
+  const getCurrentLocationErrorMessage = useCallback((status: Exclude<LocationAcquisitionStatus, 'success'>): string => {
+    switch (status) {
+      case 'permission_denied':
+        return t('map.locationPermissionDenied') || 'Location permission denied';
+      case 'timeout':
+        return t('map.locationTimedOut') || 'Location request timed out';
+      case 'unavailable':
+        return t('map.geolocationNotSupported') || 'Geolocation not supported';
+      case 'failed':
+      default:
+        return t('map.locationRequestFailed') || 'Failed to get current location';
+    }
+  }, [t]);
+
   const handleInputChange = useCallback((value: string) => {
     setQuery(value);
     setIsOpen(true);
@@ -175,13 +192,21 @@ function LocationSearchComponent({
       return;
     }
 
-    if (capabilities.mode === 'online-autocomplete') {
-      const preferredProvider = capabilities.providers[0];
-      searchTimeoutRef.current = setTimeout(() => {
-        performSearch(value, preferredProvider);
-      }, 300);
-    } else {
-      setResults([]);
+    switch (capabilities.mode) {
+      case 'online-autocomplete': {
+        const preferredProvider = capabilities.providers[0];
+        searchTimeoutRef.current = setTimeout(() => {
+          performSearch(value, preferredProvider);
+        }, 300);
+        break;
+      }
+      case 'submit-search':
+      case 'offline-cache':
+      case 'disabled':
+      default:
+        setResults([]);
+        setSelectedIndex(-1);
+        break;
     }
   }, [performSearch, refreshSearchCapabilities]);
 
@@ -204,51 +229,48 @@ function LocationSearchComponent({
   }, [onLocationSelect, query, addToHistory]);
 
   const handleCurrentLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      logger.error('Geolocation not supported');
-      return;
-    }
-
+    setCurrentLocationErrorStatus(null);
     setIsGettingLocation(true);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const coords: Coordinates = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-
-          try {
-            const reverseResult = await geocodingService.reverseGeocode(coords);
-            onLocationSelect({
-              coordinates: coords,
-              address: reverseResult.address,
-              displayName: reverseResult.displayName,
-            });
-            setQuery(reverseResult.displayName);
-          } catch {
-            const coordsString = `${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`;
-            onLocationSelect({
-              coordinates: coords,
-              address: coordsString,
-              displayName: coordsString,
-            });
-            setQuery(coordsString);
-          }
-          
-          setIsOpen(false);
-        } catch (error) {
-          logger.error('Failed to process current location', error);
-        } finally {
-          setIsGettingLocation(false);
+    acquireCurrentLocation({ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 })
+      .then(async (result) => {
+        if (result.status !== 'success') {
+          setCurrentLocationErrorStatus(result.status);
+          logger.warn('Current location request failed', result.message);
+          return;
         }
-      },
-      (error) => {
-        logger.error('Geolocation failed', error);
+
+        const coords: Coordinates = {
+          latitude: result.location.latitude,
+          longitude: result.location.longitude,
+        };
+
+        try {
+          const reverseResult = await geocodingService.reverseGeocode(coords);
+          onLocationSelect({
+            coordinates: coords,
+            address: reverseResult.address,
+            displayName: reverseResult.displayName,
+          });
+          setQuery(reverseResult.displayName);
+        } catch {
+          const coordsString = `${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`;
+          onLocationSelect({
+            coordinates: coords,
+            address: coordsString,
+            displayName: coordsString,
+          });
+          setQuery(coordsString);
+        }
+
+        setIsOpen(false);
+      })
+      .catch((error) => {
+        logger.error('Failed to process current location', error);
+        setCurrentLocationErrorStatus('failed');
+      })
+      .finally(() => {
         setIsGettingLocation(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      });
   }, [onLocationSelect]);
 
   // Memoize total items for keyboard navigation - must be defined before handleKeyDown
@@ -464,6 +486,12 @@ function LocationSearchComponent({
                             ? (t('map.searchDisabled') || 'Search is disabled by policy')
                             : (t('map.noResults') || 'No locations found')}
                     </span>
+                  </div>
+                )}
+
+                {showCurrentLocation && !query.trim() && currentLocationErrorStatus && (
+                  <div className="px-3 py-2 text-xs text-destructive">
+                    {getCurrentLocationErrorMessage(currentLocationErrorStatus)}
                   </div>
                 )}
 

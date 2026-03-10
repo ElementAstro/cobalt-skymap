@@ -6,6 +6,7 @@
 import { act } from '@testing-library/react';
 import { useSessionPlanStore } from '../session-plan-store';
 import type { SessionDraftV2 } from '@/types/starmap/session-planner-v2';
+import type { SessionPlanState } from '../session-plan-store';
 
 jest.mock('@/lib/storage', () => ({
   getZustandStorage: jest.fn(() => ({
@@ -304,7 +305,10 @@ describe('useSessionPlanStore', () => {
       });
       act(() => { useSessionPlanStore.getState().importPlanV2(draft, 'Weather'); });
       const plan = useSessionPlanStore.getState().savedPlans[0];
-      expect(plan.constraints).toEqual(draft.constraints);
+      expect(plan.constraints).toEqual(expect.objectContaining({
+        minAltitude: draft.constraints.minAltitude,
+        minImagingTime: draft.constraints.minImagingTime,
+      }));
       expect(plan.weatherSnapshot?.cloudCover).toBe(20);
       expect(plan.notes).toBe('Test notes');
     });
@@ -358,6 +362,68 @@ describe('useSessionPlanStore', () => {
       const target = useSessionPlanStore.getState().executions[0].targets[0];
       expect(target.observationIds).toEqual(['obs-1']);
     });
+
+    it('should allow valid target status transitions planned -> in_progress -> completed', () => {
+      let planId = '';
+      act(() => {
+        planId = useSessionPlanStore.getState().savePlan(makeExecutionPlanInput());
+      });
+      const saved = useSessionPlanStore.getState().getPlanById(planId);
+      let executionId = '';
+      act(() => {
+        executionId = useSessionPlanStore.getState().createExecutionFromPlan(saved!, {
+          locationId: 'loc-1',
+          locationName: 'Backyard',
+        });
+      });
+
+      act(() => {
+        useSessionPlanStore.getState().updateExecutionTarget(executionId, 'm31', {
+          status: 'in_progress',
+        });
+      });
+      expect(useSessionPlanStore.getState().executions[0].targets[0].status).toBe('in_progress');
+
+      act(() => {
+        useSessionPlanStore.getState().updateExecutionTarget(executionId, 'm31', {
+          status: 'completed',
+        });
+      });
+      const target = useSessionPlanStore.getState().executions[0].targets[0];
+      expect(target.status).toBe('completed');
+      expect(target.actualStart).toBeDefined();
+      expect(target.actualEnd).toBeDefined();
+      expect(useSessionPlanStore.getState().executions[0].summary?.completedTargets).toBe(1);
+    });
+
+    it('should reject invalid target status regression completed -> planned', () => {
+      let planId = '';
+      act(() => {
+        planId = useSessionPlanStore.getState().savePlan(makeExecutionPlanInput());
+      });
+      const saved = useSessionPlanStore.getState().getPlanById(planId);
+      let executionId = '';
+      act(() => {
+        executionId = useSessionPlanStore.getState().createExecutionFromPlan(saved!, {
+          locationId: 'loc-1',
+          locationName: 'Backyard',
+        });
+      });
+
+      act(() => {
+        useSessionPlanStore.getState().updateExecutionTarget(executionId, 'm31', {
+          status: 'completed',
+        });
+      });
+      expect(useSessionPlanStore.getState().executions[0].targets[0].status).toBe('completed');
+
+      act(() => {
+        useSessionPlanStore.getState().updateExecutionTarget(executionId, 'm31', {
+          status: 'planned',
+        });
+      });
+      expect(useSessionPlanStore.getState().executions[0].targets[0].status).toBe('completed');
+    });
   });
 
   describe('saveTemplate', () => {
@@ -370,6 +436,28 @@ describe('useSessionPlanStore', () => {
       expect(id).toMatch(/^template_/);
       expect(useSessionPlanStore.getState().templates).toHaveLength(1);
       expect(useSessionPlanStore.getState().templates[0].name).toBe('Tpl1');
+    });
+
+    it('should normalize template draft payload before persist', () => {
+      const draft = makeDraft({
+        constraints: {
+          minAltitude: 999,
+          minImagingTime: -10,
+          sessionWindow: { startTime: '99:99' as unknown as string, endTime: '01:00' },
+        },
+        manualEdits: [
+          { targetId: 'm31', startTime: '22:00', durationMinutes: 60, locked: true },
+          { targetId: 'bad', startTime: '99:99', durationMinutes: 30, locked: true },
+        ],
+      });
+      act(() => {
+        useSessionPlanStore.getState().saveTemplate({ name: 'Tpl normalize', draft });
+      });
+      const savedDraft = useSessionPlanStore.getState().templates[0].draft;
+      expect(savedDraft.constraints.minAltitude).toBe(90);
+      expect(savedDraft.constraints.minImagingTime).toBe(1);
+      expect(savedDraft.constraints.sessionWindow).toBeUndefined();
+      expect(savedDraft.manualEdits).toHaveLength(1);
     });
 
     it('should enforce MAX_SAVED_TEMPLATES (50)', () => {
@@ -418,6 +506,56 @@ describe('useSessionPlanStore', () => {
       });
       const list = useSessionPlanStore.getState().listTemplates();
       expect(list).toHaveLength(2);
+    });
+  });
+
+  describe('migration', () => {
+    it('should normalize legacy persisted records during migrate', () => {
+      const migrate = useSessionPlanStore.persist.getOptions().migrate;
+      expect(migrate).toBeDefined();
+      const migrated = migrate?.({
+        savedPlans: [{
+          id: 'plan-legacy',
+          name: 'Legacy Plan',
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-01T00:00:00.000Z',
+          planDate: 'invalid-date',
+          latitude: 40,
+          longitude: -74,
+          strategy: 'balanced',
+          minAltitude: 10,
+          minImagingTime: 20,
+          targets: [],
+          excludedTargetIds: [],
+          totalImagingTime: 0,
+          nightCoverage: 0,
+          efficiency: 0,
+        }],
+        templates: [{
+          id: 'tpl-legacy',
+          name: 'Legacy Template',
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-01T00:00:00.000Z',
+          draft: {
+            planDate: 'invalid',
+            strategy: 'balanced',
+            constraints: {
+              minAltitude: 25,
+              minImagingTime: 30,
+            },
+            excludedTargetIds: [],
+            manualEdits: [],
+          },
+        }],
+        executions: [],
+        activePlanId: null,
+        activeExecutionId: null,
+      } as Partial<SessionPlanState>, 3);
+
+      const next = migrated as Partial<SessionPlanState>;
+      expect(next.savedPlans?.[0].constraints).toBeDefined();
+      expect(next.savedPlans?.[0].minImagingTime).toBeGreaterThanOrEqual(1);
+      expect(next.templates?.[0].draft.planDate).toContain('T');
     });
   });
 });

@@ -36,15 +36,39 @@ jest.mock('@/components/ui/button', () => ({
   ),
 }));
 
-jest.mock('@/components/ui/badge', () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => (
-    <span data-testid="badge">{children}</span>
+jest.mock('@/components/ui/kbd', () => ({
+  Kbd: ({ children }: { children: React.ReactNode }) => (
+    <kbd data-testid="kbd">{children}</kbd>
+  ),
+  KbdGroup: ({ children }: { children: React.ReactNode }) => (
+    <span data-testid="kbd-group">{children}</span>
   ),
 }));
 
-jest.mock('@/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="scroll-area">{children}</div>
+jest.mock('@/components/ui/command', () => ({
+  Command: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="command">{children}</div>
+  ),
+  CommandInput: ({
+    value,
+    onValueChange,
+    ...props
+  }: {
+    value?: string;
+    onValueChange?: (value: string) => void;
+  } & React.InputHTMLAttributes<HTMLInputElement> & { 'data-testid'?: string }) => (
+    <input
+      data-testid={props['data-testid'] || 'command-input'}
+      value={value ?? ''}
+      onChange={(e) => onValueChange?.(e.target.value)}
+      {...props}
+    />
+  ),
+  CommandList: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="command-list">{children}</div>
+  ),
+  CommandEmpty: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="command-empty">{children}</div>
   ),
 }));
 
@@ -122,10 +146,10 @@ describe('KeyboardShortcutsDialog', () => {
     expect(separators.length).toBe(3);
   });
 
-  it('renders shortcut badges', () => {
+  it('renders shortcut keycaps', () => {
     render(<KeyboardShortcutsDialog />);
-    const badges = screen.getAllByTestId('badge');
-    expect(badges.length).toBeGreaterThan(0);
+    const keycaps = screen.getAllByTestId('kbd');
+    expect(keycaps.length).toBeGreaterThan(0);
   });
 
   it('supports custom trigger prop', () => {
@@ -387,16 +411,16 @@ describe('KeyboardShortcutsDialog', () => {
   // ShortcutKeyRowEdit — non-customizable shortcut (no actionId)
   // ========================================================================
 
-  it('renders static badge for non-customizable shortcuts in edit mode', () => {
+  it('renders static keycap for non-customizable shortcuts in edit mode', () => {
     render(<KeyboardShortcutsDialog />);
     fireEvent.keyDown(window, { key: '?', shiftKey: true });
     const allButtons = screen.getAllByTestId('button');
     fireEvent.click(allButtons[1]); // edit mode
 
-    // The "/" shortcut for openSearch has no actionId — should render a dimmed badge
-    const badges = screen.getAllByTestId('badge');
-    const slashBadge = badges.find(b => b.textContent === '/');
-    expect(slashBadge).toBeInTheDocument();
+    // The "/" shortcut for openSearch has no actionId — should render a keycap
+    const keycaps = screen.getAllByTestId('kbd');
+    const slashKeycap = keycaps.find(k => k.textContent === '/');
+    expect(slashKeycap).toBeInTheDocument();
   });
 
   // ========================================================================
@@ -409,9 +433,19 @@ describe('KeyboardShortcutsDialog', () => {
     });
 
     render(<KeyboardShortcutsDialog />);
-    const badges = screen.getAllByTestId('badge');
-    const badgeTexts = badges.map(b => b.textContent);
-    expect(badgeTexts).toContain('Ctrl+Z');
+    const keycaps = screen.getAllByTestId('kbd');
+    const keycapTexts = keycaps.map(k => k.textContent);
+    expect(keycapTexts).toContain('Ctrl');
+    expect(keycapTexts).toContain('Z');
+  });
+
+  it('filters shortcut rows via search input', () => {
+    render(<KeyboardShortcutsDialog />);
+
+    const searchInput = screen.getByTestId('shortcuts-search-input');
+    fireEvent.change(searchInput, { target: { value: 'non-existent-shortcut' } });
+
+    expect(screen.getByText('shortcuts.noResults')).toBeInTheDocument();
   });
 
   it('ignores standalone modifier key during recording', () => {

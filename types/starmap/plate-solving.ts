@@ -3,8 +3,12 @@
  * Extracted from components/starmap/plate-solving/ for architectural separation
  */
 
-import type { FITSMetadata } from '@/lib/plate-solving';
-import type { PlateSolveResult, SolveProgress } from '@/lib/plate-solving';
+import type {
+  FITSMetadata,
+  OnlineSolveDiagnostics,
+  PlateSolveResult,
+  SolveProgress,
+} from '@/lib/plate-solving';
 import type { SolverType } from '@/lib/tauri/plate-solver-api';
 
 // ============================================================================
@@ -74,6 +78,7 @@ export interface SolveHistoryEntry {
   imageName: string;
   solveMode: SolveMode;
   result: PlateSolveResult;
+  diagnostics?: OnlineSolveDiagnostics;
 }
 
 // ============================================================================

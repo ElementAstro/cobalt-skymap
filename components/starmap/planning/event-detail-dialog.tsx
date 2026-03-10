@@ -151,7 +151,7 @@ export function EventDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px] max-h-[80vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-[480px] max-h-[80vh] max-h-[80dvh] overflow-hidden flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-3">
             <div className={cn('p-2.5 rounded-xl', colorClass)}>

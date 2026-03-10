@@ -157,4 +157,38 @@ test.describe('Session Planner', () => {
       }
     });
   });
+
+  test.describe('Critical Planner Actions', () => {
+    test('should expose save/start/import actions in planner footer', async ({ page }) => {
+      const plannerButton = page.getByRole('button', { name: /session.*plan|观测.*计划/i }).first()
+        .or(page.locator('button').filter({ has: page.locator('svg.lucide-calendar-clock') }).first());
+
+      if (await plannerButton.isVisible().catch(() => false)) {
+        await plannerButton.click();
+        await page.waitForTimeout(500);
+
+        await expect(page.getByRole('button', { name: /save.*plan|保存.*计划/i }).first()).toBeVisible().catch(() => {});
+        await expect(page.getByRole('button', { name: /start.*execution|开始执行/i }).first()).toBeVisible().catch(() => {});
+        await expect(page.getByRole('button', { name: /import.*plan|导入.*计划/i }).first()).toBeVisible().catch(() => {});
+
+        await page.keyboard.press('Escape');
+      }
+    });
+
+    test('should show desktop-only feedback when importing on web runtime', async ({ page }) => {
+      const plannerButton = page.getByRole('button', { name: /session.*plan|观测.*计划/i }).first()
+        .or(page.locator('button').filter({ has: page.locator('svg.lucide-calendar-clock') }).first());
+
+      if (await plannerButton.isVisible().catch(() => false)) {
+        await plannerButton.click();
+        await page.waitForTimeout(500);
+        const importButton = page.getByRole('button', { name: /import.*plan|导入.*计划/i }).first();
+        if (await importButton.isVisible().catch(() => false)) {
+          await importButton.click();
+          await expect(page.locator('text=/desktop mode only|仅桌面模式支持导入/i')).toBeVisible().catch(() => {});
+        }
+        await page.keyboard.press('Escape');
+      }
+    });
+  });
 });

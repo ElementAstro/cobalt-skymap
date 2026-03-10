@@ -82,7 +82,7 @@ export interface MobileFeaturePreferences {
   prioritizedTools: string[];
 }
 
-interface SettingsState {
+export interface SettingsState {
   // Connection settings
   connection: {
     ip: string;
@@ -171,7 +171,14 @@ interface SettingsState {
 // Default Values
 // ============================================================================
 
-const DEFAULT_PREFERENCES: AppPreferences = {
+export const DEFAULT_CONNECTION: SettingsState['connection'] = {
+  ip: 'localhost',
+  port: '1888',
+};
+
+export const DEFAULT_BACKEND_PROTOCOL: SettingsState['backendProtocol'] = 'http';
+
+export const DEFAULT_PREFERENCES: AppPreferences = {
   locale: 'en',
   timeFormat: '24h',
   dateFormat: 'iso',
@@ -188,7 +195,7 @@ const DEFAULT_PREFERENCES: AppPreferences = {
   dailyKnowledgeOnlineEnhancement: true,
 };
 
-const DEFAULT_PERFORMANCE: PerformanceSettings = {
+export const DEFAULT_PERFORMANCE: PerformanceSettings = {
   renderQuality: 'high',
   enableAnimations: true,
   reducedMotion: false,
@@ -197,7 +204,7 @@ const DEFAULT_PERFORMANCE: PerformanceSettings = {
   showFPS: false,
 };
 
-const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
+export const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
   highContrast: false,
   largeText: false,
   screenReaderOptimized: false,
@@ -205,7 +212,7 @@ const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
   focusIndicators: true,
 };
 
-const DEFAULT_NOTIFICATIONS: NotificationSettings = {
+export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
   enableSounds: false,
   enableToasts: true,
   toastDuration: 4000,
@@ -213,7 +220,7 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
   showSatelliteAlerts: true,
 };
 
-const DEFAULT_SEARCH: SearchSettings = {
+export const DEFAULT_SEARCH: SearchSettings = {
   autoSearchDelay: 300,
   enableFuzzySearch: true,
   maxSearchResults: 50,
@@ -222,13 +229,13 @@ const DEFAULT_SEARCH: SearchSettings = {
   maxHistoryItems: 20,
 };
 
-const DEFAULT_MOBILE_FEATURE_PREFERENCES: MobileFeaturePreferences = {
+export const DEFAULT_MOBILE_FEATURE_PREFERENCES: MobileFeaturePreferences = {
   compactBottomBar: false,
   oneHandMode: false,
   prioritizedTools: DEFAULT_MOBILE_PRIORITIZED_TOOLS,
 };
 
-const DEFAULT_STELLARIUM: StellariumSettings = DEFAULT_STELLARIUM_SETTINGS;
+export const DEFAULT_STELLARIUM: StellariumSettings = DEFAULT_STELLARIUM_SETTINGS;
 
 function normalizeMobileFeaturePreferences(
   mobileFeaturePreferences: Partial<MobileFeaturePreferences> | undefined,
@@ -253,11 +260,8 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       // Initial state
-      connection: {
-        ip: 'localhost',
-        port: '1888',
-      },
-      backendProtocol: 'http',
+      connection: DEFAULT_CONNECTION,
+      backendProtocol: DEFAULT_BACKEND_PROTOCOL,
       skyEngine: 'stellarium' as SkyEngineType,
       stellarium: DEFAULT_STELLARIUM,
       preferences: DEFAULT_PREFERENCES,

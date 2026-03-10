@@ -192,7 +192,7 @@ export function FOVSimulator({
         </TooltipContent>
       </Tooltip>
 
-      <DialogContent className="w-[95vw] max-w-[640px] max-h-[85vh] overflow-y-auto p-4 sm:p-6">
+      <DialogContent className="w-[95vw] max-w-[640px] max-h-[85vh] max-h-[85dvh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">

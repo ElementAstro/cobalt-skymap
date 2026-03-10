@@ -23,9 +23,17 @@ export function useStellariumEvents({
   getClickCoordinates,
   onContextMenu,
 }: UseStellariumEventsOptions) {
+  const isUiControlTarget = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) {
+      return false;
+    }
+    return target.closest('[data-starmap-ui-control="true"]') !== null;
+  };
+
   // Long press handling for mobile devices
   const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const touchStartedOnUiControlRef = useRef(false);
 
   // Right-click drag detection - only show context menu on click, not drag
   const rightMouseDownPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
@@ -61,6 +69,11 @@ export function useStellariumEvents({
 
     const handleContextMenu = (e: Event) => {
       const mouseEvent = e as MouseEvent;
+
+      if (isUiControlTarget(mouseEvent.target)) {
+        rightMouseDownPosRef.current = null;
+        return;
+      }
       
       // Check if this was a click (not a drag)
       const wasClick = rightMouseDownPosRef.current !== null && 
@@ -96,6 +109,20 @@ export function useStellariumEvents({
     // Long press handlers for mobile
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
+
+      touchStartedOnUiControlRef.current = isUiControlTarget(e.target);
+      if (touchStartedOnUiControlRef.current) {
+        if (longPressTimeoutRef.current) {
+          clearTimeout(longPressTimeoutRef.current);
+          longPressTimeoutRef.current = null;
+        }
+        touchStartPosRef.current = null;
+        return;
+      }
+
+      if (e.cancelable) {
+        e.preventDefault();
+      }
       
       const touch = e.touches[0];
       touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
@@ -121,7 +148,12 @@ export function useStellariumEvents({
     };
 
     const handleTouchMove = (e: TouchEvent) => {
+      if (touchStartedOnUiControlRef.current) return;
       if (!touchStartPosRef.current || e.touches.length !== 1) return;
+
+      if (e.cancelable) {
+        e.preventDefault();
+      }
       
       const touch = e.touches[0];
       const dx = touch.clientX - touchStartPosRef.current.x;
@@ -143,6 +175,7 @@ export function useStellariumEvents({
         longPressTimeoutRef.current = null;
       }
       touchStartPosRef.current = null;
+      touchStartedOnUiControlRef.current = false;
     };
 
     // Mouse event listeners for right-click detection
@@ -151,8 +184,8 @@ export function useStellariumEvents({
     // Use capture phase to intercept BEFORE Stellarium engine's handlers
     container.addEventListener('contextmenu', handleContextMenu, { capture: true });
     // Touch event listeners for mobile long press
-    container.addEventListener('touchstart', handleTouchStart, { passive: true });
-    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
     container.addEventListener('touchend', handleTouchEnd);
     container.addEventListener('touchcancel', handleTouchEnd);
     

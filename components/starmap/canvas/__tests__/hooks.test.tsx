@@ -511,6 +511,37 @@ describe('useStellariumEvents', () => {
     expect(eventTypes).toContain('touchstart');
   });
 
+  it('does not open context menu when interaction starts on UI control surfaces', async () => {
+    const { useStellariumEvents } = await import('@/lib/hooks/stellarium/use-stellarium-events');
+    const container = document.createElement('div');
+    const uiButton = document.createElement('button');
+    uiButton.setAttribute('data-starmap-ui-control', 'true');
+    container.appendChild(uiButton);
+
+    const containerRef = { current: container };
+    const getClickCoordinates = jest.fn(() => ({ ra: 0, dec: 0, raStr: '0h', decStr: '0°' }));
+    const onContextMenu = jest.fn();
+
+    renderHook(() =>
+      useStellariumEvents({ containerRef, getClickCoordinates, onContextMenu })
+    );
+
+    uiButton.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true,
+      button: 2,
+      clientX: 20,
+      clientY: 30,
+    }));
+    uiButton.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true,
+      button: 2,
+      clientX: 20,
+      clientY: 30,
+    }));
+
+    expect(onContextMenu).not.toHaveBeenCalled();
+  });
+
   it('cleans up event listeners on unmount', async () => {
     const { useStellariumEvents } = await import('@/lib/hooks/stellarium/use-stellarium-events');
     const container = document.createElement('div');

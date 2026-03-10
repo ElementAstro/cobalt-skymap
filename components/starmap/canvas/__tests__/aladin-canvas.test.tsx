@@ -98,6 +98,7 @@ jest.mock('../components', () => ({
   LoadingOverlay: ({ loadingState }: { loadingState: { isLoading: boolean } }) => (
     <div data-testid="loading-overlay">{loadingState.isLoading ? 'Loading' : 'Ready'}</div>
   ),
+  HoverObjectLabel: ({ name }: { name: string }) => <div>{name}</div>,
 }));
 
 import { AladinCanvas } from '../aladin-canvas';
@@ -393,6 +394,21 @@ describe('AladinCanvas', () => {
         capturedOnHoverChange!('not-an-object');
       });
       // No error
+    });
+
+    it('does not render hover label when world2pix returns null', () => {
+      const { mockAladin } = renderWithAladin();
+      mockAladin.world2pix.mockReturnValueOnce(null as unknown as number[]);
+
+      act(() => {
+        capturedOnHoverChange!({
+          ra: 10,
+          dec: 20,
+          data: { name: 'Sirius' },
+        });
+      });
+
+      expect(screen.queryByText('Sirius')).not.toBeInTheDocument();
     });
   });
 

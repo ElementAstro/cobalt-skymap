@@ -49,7 +49,7 @@ export default function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <main className="min-h-screen bg-background">
+      <main className="min-h-screen min-h-dvh bg-background">
         <Navbar />
         <HeroSection />
         <StatsSection />

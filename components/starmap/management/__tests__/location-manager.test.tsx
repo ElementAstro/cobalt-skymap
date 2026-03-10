@@ -26,11 +26,26 @@ jest.mock('@/lib/tauri', () => {
   };
 });
 
+jest.mock('@/lib/services/location-acquisition', () => ({
+  acquireCurrentLocation: jest.fn(),
+}));
+
+jest.mock('@/lib/services/geocoding-service', () => ({
+  geocodingService: {
+    reverseGeocode: jest.fn(),
+  },
+}));
+
 // Import mocked modules
 import { useLocations, tauriApi } from '@/lib/tauri';
+import { acquireCurrentLocation } from '@/lib/services/location-acquisition';
+import { geocodingService } from '@/lib/services/geocoding-service';
+import { useWebLocationStore } from '@/lib/stores/web-location-store';
 
 const mockUseLocations = useLocations as jest.Mock;
 const mockTauriApi = tauriApi as jest.Mocked<typeof tauriApi>;
+const mockAcquireCurrentLocation = acquireCurrentLocation as jest.Mock;
+const mockReverseGeocode = geocodingService.reverseGeocode as jest.Mock;
 
 // Mock toast
 jest.mock('sonner', () => ({
@@ -203,12 +218,9 @@ jest.mock('@/components/ui/alert-dialog', () => ({
 import { LocationManager } from '../location-manager';
 
 describe('LocationManager', () => {
-  const mockGeolocation = {
-    getCurrentPosition: jest.fn(),
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
+    useWebLocationStore.setState({ locations: [] });
     mockUseLocations.mockReturnValue({
       locations: { locations: [] },
       currentLocation: null,
@@ -217,11 +229,21 @@ describe('LocationManager', () => {
       setCurrent: jest.fn(),
       isAvailable: true,
     });
-
-    // Mock geolocation
-    Object.defineProperty(global.navigator, 'geolocation', {
-      value: mockGeolocation,
-      writable: true,
+    mockAcquireCurrentLocation.mockResolvedValue({
+      status: 'success',
+      source: 'browser',
+      location: {
+        latitude: 51.5074,
+        longitude: -0.1278,
+        altitude: 50,
+        accuracy: 10,
+        timestamp: Date.now(),
+      },
+    });
+    mockReverseGeocode.mockResolvedValue({
+      displayName: 'London, UK',
+      address: 'London, UK',
+      coordinates: { latitude: 51.5074, longitude: -0.1278 },
     });
   });
 
@@ -616,6 +638,123 @@ describe('LocationManager', () => {
         expect(mockToast.error).toHaveBeenCalledWith('Delete failed');
       });
     });
+
+    it('promotes deterministic current location in web mode after deleting current', async () => {
+      const mockOnLocationChange = jest.fn();
+      useWebLocationStore.setState({
+        locations: [
+          {
+            id: 'loc-a',
+            name: 'Current Web',
+            latitude: 10,
+            longitude: 20,
+            altitude: 100,
+            is_default: false,
+            is_current: true,
+          },
+          {
+            id: 'loc-b',
+            name: 'Default Web',
+            latitude: 11,
+            longitude: 22,
+            altitude: 110,
+            is_default: true,
+            is_current: false,
+          },
+          {
+            id: 'loc-c',
+            name: 'Other Web',
+            latitude: 12,
+            longitude: 24,
+            altitude: 120,
+            is_default: false,
+            is_current: false,
+          },
+        ],
+      });
+      mockUseLocations.mockReturnValue({
+        locations: null,
+        currentLocation: null,
+        loading: false,
+        refresh: jest.fn(),
+        setCurrent: jest.fn(),
+        isAvailable: false,
+      });
+
+      render(<LocationManager onLocationChange={mockOnLocationChange} />);
+
+      const ghostButtons = screen.getAllByRole('button').filter(
+        (btn) => btn.getAttribute('data-variant') === 'ghost'
+      );
+
+      await act(async () => {
+        fireEvent.click(ghostButtons[1]);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('alert-dialog-action'));
+      });
+
+      await waitFor(() => {
+        const locations = useWebLocationStore.getState().locations;
+        expect(locations.some((loc) => loc.id === 'loc-a')).toBe(false);
+        const currents = locations.filter((loc) => loc.is_current);
+        expect(currents).toHaveLength(1);
+        expect(currents[0].id).toBe('loc-b');
+        expect(mockOnLocationChange).toHaveBeenCalledWith(11, 22, 110);
+        expect(mockOnLocationChange).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('does not emit location callback when deleting non-current location in web mode', async () => {
+      const mockOnLocationChange = jest.fn();
+      useWebLocationStore.setState({
+        locations: [
+          {
+            id: 'loc-a',
+            name: 'Current Web',
+            latitude: 10,
+            longitude: 20,
+            altitude: 100,
+            is_default: true,
+            is_current: true,
+          },
+          {
+            id: 'loc-b',
+            name: 'Other Web',
+            latitude: 11,
+            longitude: 22,
+            altitude: 110,
+            is_default: false,
+            is_current: false,
+          },
+        ],
+      });
+      mockUseLocations.mockReturnValue({
+        locations: null,
+        currentLocation: null,
+        loading: false,
+        refresh: jest.fn(),
+        setCurrent: jest.fn(),
+        isAvailable: false,
+      });
+
+      render(<LocationManager onLocationChange={mockOnLocationChange} />);
+
+      const ghostButtons = screen.getAllByRole('button').filter(
+        (btn) => btn.getAttribute('data-variant') === 'ghost'
+      );
+
+      await act(async () => {
+        fireEvent.click(ghostButtons[4]);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('alert-dialog-action'));
+      });
+
+      await waitFor(() => {
+        expect(mockOnLocationChange).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('Set Current Location', () => {
@@ -733,16 +872,6 @@ describe('LocationManager', () => {
 
   describe('GPS Functionality', () => {
     it('fills form with GPS coordinates on success', async () => {
-      mockGeolocation.getCurrentPosition.mockImplementation((success) => {
-        success({
-          coords: {
-            latitude: 51.5074,
-            longitude: -0.1278,
-            altitude: 50,
-          },
-        });
-      });
-
       render(<LocationManager />);
 
       const addButton = screen.getByText(/locations\.addLocation/);
@@ -757,15 +886,45 @@ describe('LocationManager', () => {
 
       const latInput = screen.getByPlaceholderText('39.9042') as HTMLInputElement;
       const lonInput = screen.getByPlaceholderText('116.4074') as HTMLInputElement;
+      const nameInput = screen.getByPlaceholderText(/locations\.namePlaceholder|e\.g\. Backyard/) as HTMLInputElement;
+      const altitudeInput = screen.getByPlaceholderText('100') as HTMLInputElement;
 
       expect(latInput.value).toBe('51.507400');
       expect(lonInput.value).toBe('-0.127800');
+      expect(nameInput.value).toBe('London, UK');
+      expect(altitudeInput.value).toBe('50');
       expect(mockToast.success).toHaveBeenCalled();
     });
 
+    it('does not overwrite manually edited metadata when GPS auto-fill runs', async () => {
+      render(<LocationManager />);
+
+      const addButton = screen.getByText(/locations\.addLocation/);
+      await act(async () => {
+        fireEvent.click(addButton);
+      });
+
+      const nameInput = screen.getByPlaceholderText(/locations\.namePlaceholder|e\.g\. Backyard/);
+      const altitudeInput = screen.getByPlaceholderText('100');
+      await act(async () => {
+        fireEvent.change(nameInput, { target: { value: 'Manual Site Name' } });
+        fireEvent.change(altitudeInput, { target: { value: '321' } });
+      });
+
+      const gpsButton = screen.getByText(/locations\.useGPS/);
+      await act(async () => {
+        fireEvent.click(gpsButton);
+      });
+
+      expect((nameInput as HTMLInputElement).value).toBe('Manual Site Name');
+      expect((altitudeInput as HTMLInputElement).value).toBe('321');
+    });
+
     it('shows error when GPS fails', async () => {
-      mockGeolocation.getCurrentPosition.mockImplementation((_, error) => {
-        error({ message: 'GPS Error' });
+      mockAcquireCurrentLocation.mockResolvedValue({
+        status: 'failed',
+        source: 'browser',
+        message: 'GPS Error',
       });
 
       render(<LocationManager />);
@@ -780,13 +939,14 @@ describe('LocationManager', () => {
         fireEvent.click(gpsButton);
       });
 
-      expect(mockToast.error).toHaveBeenCalledWith('GPS Error');
+      expect(mockToast.error).toHaveBeenCalledWith('locations.locationFailed');
     });
 
     it('shows error when GPS not supported', async () => {
-      Object.defineProperty(global.navigator, 'geolocation', {
-        value: undefined,
-        writable: true,
+      mockAcquireCurrentLocation.mockResolvedValue({
+        status: 'unavailable',
+        source: 'browser',
+        message: 'not available',
       });
 
       render(<LocationManager />);
@@ -801,7 +961,7 @@ describe('LocationManager', () => {
         fireEvent.click(gpsButton);
       });
 
-      expect(mockToast.error).toHaveBeenCalled();
+      expect(mockToast.error).toHaveBeenCalledWith('locations.locationUnavailable');
     });
   });
 

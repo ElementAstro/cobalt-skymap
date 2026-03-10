@@ -43,7 +43,7 @@ export function TourTooltip({
       aria-describedby={descId}
       tabIndex={-1}
       className={cn(
-        'fixed z-[9999] w-[min(320px,calc(100vw-32px))] bg-card/95 backdrop-blur-md text-card-foreground rounded-lg shadow-2xl border border-border outline-none',
+        'fixed z-[9999] w-[min(320px,calc(100vw-var(--safe-area-left)-var(--safe-area-right)-32px))] max-h-[calc(100vh-var(--safe-area-top)-var(--safe-area-bottom)-32px)] max-h-[calc(100dvh-var(--safe-area-top)-var(--safe-area-bottom)-32px)] overflow-y-auto bg-card/95 backdrop-blur-md text-card-foreground rounded-lg shadow-2xl border border-border outline-none',
         isVisible ? 'tour-tooltip-enter' : 'opacity-0 scale-95'
       )}
       style={{

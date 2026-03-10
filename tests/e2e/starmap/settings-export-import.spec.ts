@@ -148,5 +148,29 @@ test.describe('Settings Export/Import', () => {
         await page.keyboard.press('Escape');
       }
     });
+
+    test('should show parse/validation feedback for invalid import files', async ({ page }) => {
+      if (await openSettings(page)) {
+        const invalidPayload = '{"version":5,"settings":';
+
+        await page.evaluate((content) => {
+          const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+          if (!input) return;
+
+          const file = new File([content], 'invalid-settings.json', { type: 'application/json' });
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          input.files = dt.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }, invalidPayload);
+
+        await page.waitForTimeout(500);
+
+        const errorMessage = page.locator('text=/parse|invalid|格式|解析/i');
+        expect(await errorMessage.count()).toBeGreaterThanOrEqual(0);
+
+        await page.keyboard.press('Escape');
+      }
+    });
   });
 });

@@ -11,14 +11,13 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { useSettingsStore } from '@/lib/stores';
+import { useSearchDraftModel } from '@/lib/hooks/use-settings-draft';
 import { SettingsSection, ToggleItem } from './settings-shared';
 
 export function SearchBehaviorSettings() {
   const t = useTranslations();
   
-  const search = useSettingsStore((state) => state.search);
-  const setSearchSetting = useSettingsStore((state) => state.setSearchSetting);
+  const { search, setSearchSetting } = useSearchDraftModel();
 
   return (
     <div className="space-y-4">

@@ -12,6 +12,7 @@ import {
   recommendAstapDatabase,
   analyseImage,
   extractStars,
+  cancelOnlineSolve,
   solveOnline,
 } from '../plate-solver-api';
 import type {
@@ -339,6 +340,7 @@ describe('plate-solver-api', () => {
         };
         const mockResult: OnlineSolveResult = {
           success: true,
+          operation_id: 'op-123',
           ra: 180.1,
           dec: 45.05,
           orientation: 12.5,
@@ -352,6 +354,7 @@ describe('plate-solver-api', () => {
           job_id: 12345,
           wcs: null,
           solve_time_ms: 30000,
+          error_code: null,
           error_message: null,
         };
         mockInvoke.mockResolvedValueOnce(mockResult);
@@ -361,6 +364,26 @@ describe('plate-solver-api', () => {
         expect(mockInvoke).toHaveBeenCalledWith('solve_online', { config });
         expect(result).toEqual(mockResult);
         expect(result.objects_in_field).toContain('M31');
+      });
+    });
+
+    describe('cancelOnlineSolve', () => {
+      it('should invoke cancel_online_solve with operation id when provided', async () => {
+        mockInvoke.mockResolvedValueOnce(true);
+
+        const result = await cancelOnlineSolve('op-123');
+
+        expect(mockInvoke).toHaveBeenCalledWith('cancel_online_solve', { operationId: 'op-123' });
+        expect(result).toBe(true);
+      });
+
+      it('should invoke cancel_online_solve without operation id', async () => {
+        mockInvoke.mockResolvedValueOnce(false);
+
+        const result = await cancelOnlineSolve();
+
+        expect(mockInvoke).toHaveBeenCalledWith('cancel_online_solve', { operationId: null });
+        expect(result).toBe(false);
       });
     });
   });

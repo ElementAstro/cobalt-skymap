@@ -37,6 +37,41 @@ function angularErrorArcsec(targetRad: number, actualRad: number): number {
   return wrapped * (180 / Math.PI) * 3600;
 }
 
+type AssetPathMode = 'absolute' | 'dot' | 'dotdot';
+
+function stripLeadingSlash(path: string): string {
+  return path.replace(/^\/+/, '');
+}
+
+function resolveAssetPath(path: string, mode: AssetPathMode): string {
+  if (mode === 'absolute') return path;
+  const relativePath = stripLeadingSlash(path);
+  return mode === 'dot' ? `./${relativePath}` : `../${relativePath}`;
+}
+
+function getAssetPathCandidates(path: string): Array<{ mode: AssetPathMode; value: string }> {
+  if (typeof window === 'undefined') {
+    return [{ mode: 'absolute', value: path }];
+  }
+
+  // Route exports like /starmap/index.html often require one level up in file protocol.
+  if (window.location.protocol === 'file:') {
+    return [
+      { mode: 'dotdot', value: resolveAssetPath(path, 'dotdot') },
+      { mode: 'dot', value: resolveAssetPath(path, 'dot') },
+      { mode: 'absolute', value: resolveAssetPath(path, 'absolute') },
+    ];
+  }
+
+  // For custom runtimes/proxies that serve the app under a sub-path, keep
+  // relative fallbacks as backup when root-absolute paths are not mounted.
+  return [
+    { mode: 'absolute', value: resolveAssetPath(path, 'absolute') },
+    { mode: 'dot', value: resolveAssetPath(path, 'dot') },
+    { mode: 'dotdot', value: resolveAssetPath(path, 'dotdot') },
+  ];
+}
+
 interface UseStellariumLoaderOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -77,6 +112,7 @@ export function useStellariumLoader({
   const retryTimeoutRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const overallDeadlineRef = useRef<number>(0);
+  const assetPathModeRef = useRef<AssetPathMode>('absolute');
   
   const [isLoading, setIsLoading] = useState(true);
   const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null);
@@ -189,7 +225,7 @@ export function useStellariumLoader({
     setHelpers({ getCurrentViewDirection, setViewDirection });
 
     // Data source URLs - use local data from /stellarium-data/
-    const baseUrl = '/stellarium-data/';
+    const baseUrl = resolveAssetPath('/stellarium-data/', assetPathModeRef.current);
     setBaseUrl(baseUrl);
 
     const core = stel.core;
@@ -307,7 +343,9 @@ export function useStellariumLoader({
       }
 
       // Check if script tag already exists
-      const existingScript = document.querySelector(`script[src="${SCRIPT_PATH}"]`);
+      const existingScript = document.querySelector<HTMLScriptElement>(
+        'script[data-stellarium-engine="true"], script[src*="stellarium-web-engine.js"]'
+      );
       if (existingScript) {
         // Script tag exists but StelWebEngine is not set (checked above).
         // The script may have already loaded/errored — event listeners won't re-fire.
@@ -316,27 +354,48 @@ export function useStellariumLoader({
         existingScript.remove();
       }
 
-      const script = document.createElement('script');
-      script.src = SCRIPT_PATH;
-      script.async = true;
+      const candidates = getAssetPathCandidates(SCRIPT_PATH);
+      const perAttemptTimeout = Math.max(3000, Math.floor(SCRIPT_LOAD_TIMEOUT / candidates.length));
+      let tryIndex = 0;
+      let lastError: Error | null = null;
 
-      const timeoutId = setTimeout(() => {
-        script.remove();
-        reject(new Error(t('scriptLoadTimedOut')));
-      }, SCRIPT_LOAD_TIMEOUT);
+      const tryNext = () => {
+        if (tryIndex >= candidates.length) {
+          reject(lastError ?? new Error(t('scriptLoadFailed')));
+          return;
+        }
 
-      script.onload = () => {
-        clearTimeout(timeoutId);
-        resolve();
+        const current = candidates[tryIndex++];
+        const script = document.createElement('script');
+        script.src = current.value;
+        script.async = true;
+        script.dataset.stellariumEngine = 'true';
+        logger.debug('Trying Stellarium script path', { path: current.value, mode: current.mode });
+
+        const timeoutId = setTimeout(() => {
+          script.remove();
+          lastError = new Error(t('scriptLoadTimedOut'));
+          tryNext();
+        }, perAttemptTimeout);
+
+        script.onload = () => {
+          clearTimeout(timeoutId);
+          assetPathModeRef.current = current.mode;
+          logger.info('Stellarium script loaded', { path: current.value, mode: current.mode });
+          resolve();
+        };
+
+        script.onerror = () => {
+          clearTimeout(timeoutId);
+          script.remove();
+          lastError = new Error(t('scriptLoadFailed'));
+          tryNext();
+        };
+
+        document.head.appendChild(script);
       };
 
-      script.onerror = () => {
-        clearTimeout(timeoutId);
-        script.remove();
-        reject(new Error(t('scriptLoadFailed')));
-      };
-
-      document.head.appendChild(script);
+      tryNext();
     });
   }, [t]);
 
@@ -356,13 +415,15 @@ export function useStellariumLoader({
     // Capture reference after check (TypeScript narrowing)
     const StelWebEngine = window.StelWebEngine;
 
+    const wasmPath = resolveAssetPath(WASM_PATH, assetPathModeRef.current);
+
     return new Promise<void>((resolve, reject) => {
       let resolved = false;
 
       try {
         // StelWebEngine expects: wasmFile, canvasElement, translateFn, onReady
         const engineResult = StelWebEngine({
-          wasmFile: WASM_PATH,
+          wasmFile: wasmPath,
           canvasElement: canvasRef.current!,
           translateFn,
           onReady: (stel: StellariumEngine) => {
@@ -465,11 +526,12 @@ export function useStellariumLoader({
           setLoadingStatus(t('preparingResources'));
           setLoadingProgress(10);
           setLoadingPhase('preparing');
+          const wasmPath = resolveAssetPath(WASM_PATH, assetPathModeRef.current);
           if (!document.querySelector('link[href$=".wasm"][rel="prefetch"]')) {
             const link = document.createElement('link');
             link.rel = 'prefetch';
             link.as = 'fetch';
-            link.href = WASM_PATH;
+            link.href = wasmPath;
             link.crossOrigin = 'anonymous';
             document.head.appendChild(link);
           }
@@ -612,6 +674,7 @@ export function useStellariumLoader({
     retryCountRef.current = 0;
     overallDeadlineRef.current = 0;
     initializingRef.current = false;
+    assetPathModeRef.current = 'absolute';
     startLoading();
   }, [startLoading]);
 
@@ -629,7 +692,9 @@ export function useStellariumLoader({
     }
     
     // Remove existing script to force reload
-    const existingScript = document.querySelector(`script[src="${SCRIPT_PATH}"]`);
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[data-stellarium-engine="true"], script[src*="stellarium-web-engine.js"]'
+    );
     if (existingScript) {
       existingScript.remove();
     }
@@ -642,6 +707,7 @@ export function useStellariumLoader({
     retryCountRef.current = 0;
     overallDeadlineRef.current = 0;
     initializingRef.current = false;
+    assetPathModeRef.current = 'absolute';
     
     // Start fresh loading
     startLoading();

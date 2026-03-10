@@ -14,6 +14,12 @@ jest.mock('@/components/ui/card', () => ({
   CardTitle: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }));
 jest.mock('@/components/ui/scroll-area', () => ({ ScrollArea: ({ children }: React.PropsWithChildren) => <div>{children}</div> }));
+jest.mock('@/components/ui/drawer', () => ({
+  Drawer: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DrawerContent: ({ children }: React.PropsWithChildren) => <div data-testid="search-mobile-drawer">{children}</div>,
+  DrawerHeader: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DrawerTitle: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+}));
 jest.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   TooltipContent: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
@@ -97,5 +103,10 @@ describe('SearchPanel', () => {
     // When closed, should have pointer-events-none class
     const card = container.firstChild as HTMLElement;
     expect(card.className).toContain('pointer-events-none');
+  });
+
+  it('renders mobile drawer variant when mobile shell is enabled', () => {
+    render(<SearchPanel isOpen={true} isMobileShell={true} onClose={jest.fn()} onSelect={jest.fn()} />);
+    expect(screen.getByTestId('search-mobile-drawer')).toBeInTheDocument();
   });
 });

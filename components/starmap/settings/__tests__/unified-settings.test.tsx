@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 // Mock stores
 const mockUseSettingsStore = jest.fn((selector) => {
@@ -27,6 +27,8 @@ jest.mock('@/lib/stores', () => ({
       openSettingsDrawerRequestId: 0,
       closeTransientPanelsRequestId: 0,
       settingsDrawerTab: null,
+      settingsDrawerOpen: false,
+      setSettingsDrawerOpen: jest.fn(),
     };
     return selector ? selector(state) : state;
   },
@@ -53,6 +55,52 @@ jest.mock('@/lib/stores/theme-store', () => ({
   useThemeStore: (selector: (state: unknown) => unknown) => {
     const state = { resetCustomization: jest.fn() };
     return selector ? selector(state) : state;
+  },
+}));
+
+const mockStartSession = jest.fn();
+const mockCancelSession = jest.fn();
+const mockClearSession = jest.fn();
+const mockApplyDraft = jest.fn(() => ({
+  success: true,
+  appliedDomains: [],
+  failedDomains: [],
+  rolledBackDomains: [],
+}));
+const mockResetCategoryDraft = jest.fn();
+const mockResetAllDraftToDefaults = jest.fn();
+const mockClearLastApplyResult = jest.fn();
+
+jest.mock('@/lib/hooks/use-settings-draft', () => ({
+  useSettingsDraftLifecycle: () => ({
+    startSession: mockStartSession,
+    cancelSession: mockCancelSession,
+    clearSession: mockClearSession,
+    applyDraft: mockApplyDraft,
+    resetCategoryDraft: mockResetCategoryDraft,
+    resetAllDraftToDefaults: mockResetAllDraftToDefaults,
+    clearLastApplyResult: mockClearLastApplyResult,
+  }),
+  useSettingsDraftStatus: () => ({
+    sessionActive: true,
+    hasDirty: true,
+    canApply: true,
+    dirtyPaths: ['connection.ip'],
+    dirtyCategories: ['connection'],
+    validation: {
+      isValid: true,
+      issues: [],
+      fieldErrors: {},
+      categoryErrors: {},
+    },
+    lastApplyResult: null,
+  }),
+}));
+
+jest.mock('sonner', () => ({
+  toast: {
+    success: jest.fn(),
+    error: jest.fn(),
   },
 }));
 
@@ -325,6 +373,28 @@ describe('UnifiedSettings Store Integration', () => {
     // UnifiedSettings now uses getState() for reset instead of hook subscriptions
     // so the mock store hooks may not be called directly
     expect(screen.getByTestId('drawer')).toBeInTheDocument();
+  });
+
+  it('calls applyDraft when clicking save', () => {
+    render(<UnifiedSettings />);
+    const saveButton = screen
+      .getAllByTestId('button')
+      .find((button) => /common\.save|save/i.test(button.textContent ?? ''));
+    expect(saveButton).toBeDefined();
+    if (!saveButton) return;
+    fireEvent.click(saveButton);
+    expect(mockApplyDraft).toHaveBeenCalled();
+  });
+
+  it('calls cancelSession when clicking cancel', () => {
+    render(<UnifiedSettings />);
+    const cancelButton = screen
+      .getAllByTestId('button')
+      .find((button) => /common\.cancel|cancel/i.test(button.textContent ?? ''));
+    expect(cancelButton).toBeDefined();
+    if (!cancelButton) return;
+    fireEvent.click(cancelButton);
+    expect(mockCancelSession).toHaveBeenCalled();
   });
 });
 

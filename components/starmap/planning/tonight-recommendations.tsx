@@ -636,7 +636,7 @@ export function TonightRecommendations() {
         </TooltipContent>
       </Tooltip>
       
-      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] max-h-[90dvh] overflow-hidden flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
@@ -796,7 +796,7 @@ export function TonightRecommendations() {
           ) : filteredRecommendations.length === 0 ? (
             <EmptyState icon={Sparkles} message={t('tonight.noRecommendations')} />
           ) : (
-            <ScrollArea className="h-[38vh] min-h-[200px]">
+            <ScrollArea className="h-[38vh] h-[38dvh] min-h-[200px]">
               <div className="space-y-2 pr-2">
                 {filteredRecommendations.map((target, index) => (
                   <TargetCard

@@ -5,6 +5,7 @@
 
 import { getProgressText, getProgressPercent, persistFileForLocalSolve } from '../solve-utils';
 import type { SolveProgress } from '../astrometry-api';
+import { createInitialOnlineSolveSessionState } from '../online-solve-contract';
 import type { PlateSolveResult } from '../types';
 
 const mockT = (key: string) => key;
@@ -102,6 +103,16 @@ describe('getProgressText', () => {
     const text = getProgressText(p, emptyT);
     expect(text).toContain('Uploading');
   });
+
+  it('should support normalized session stages', () => {
+    const session = {
+      ...createInitialOnlineSolveSessionState('tauri'),
+      stage: 'authenticating' as const,
+      progress: 10,
+    };
+    const text = getProgressText(session, mockT);
+    expect(text).toContain('authenticating');
+  });
 });
 
 // ============================================================================
@@ -140,5 +151,14 @@ describe('getProgressPercent', () => {
   it('should return 100 for failed stage', () => {
     const p: SolveProgress = { stage: 'failed', error: 'err' };
     expect(getProgressPercent('online', 0, p)).toBe(100);
+  });
+
+  it('should return normalized progress for session state', () => {
+    const session = {
+      ...createInitialOnlineSolveSessionState('web'),
+      stage: 'queued' as const,
+      progress: 42,
+    };
+    expect(getProgressPercent('online', 0, session)).toBe(42);
   });
 });

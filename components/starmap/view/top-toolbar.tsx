@@ -37,7 +37,7 @@ import { TonightRecommendations } from '../planning/tonight-recommendations';
 import { SkyAtlasPanel } from '../planning/sky-atlas-panel';
 import { AstroEventsCalendar } from '../planning/astro-events-calendar';
 import { AstroCalculatorDialog } from '../planning/astro-calculator-dialog';
-import { SessionPlanner } from '../planning/session-planner';
+import { SessionPlannerButton } from '../planning/session-planner';
 import { SatelliteTracker } from '../overlays/satellite-tracker';
 import { OcularSimulator } from '../overlays/ocular-simulator';
 import { PlateSolverUnified } from '../plate-solving/plate-solver-unified';
@@ -103,7 +103,10 @@ export const TopToolbar = memo(function TopToolbar({
   }, [closeTransientPanelsRequestId, isSearchOpen, onToggleSearch]);
 
   return (
-    <div className="absolute top-0 left-0 right-0 pointer-events-none safe-area-top animate-fade-in">
+    <div
+      className="absolute top-0 left-0 right-0 pointer-events-none safe-area-top animate-fade-in"
+      style={{ paddingLeft: 'var(--safe-area-left)', paddingRight: 'var(--safe-area-right)' }}
+    >
       {/* Drag region layer - covers entire top bar area, double-click to maximize */}
       <div
         data-tauri-drag-region
@@ -116,7 +119,11 @@ export const TopToolbar = memo(function TopToolbar({
         }}
       />
 
-      <div className="relative p-2 sm:p-3 flex items-center justify-between" style={{ zIndex: 1 }}>
+      <div
+        data-starmap-ui-control="true"
+        className="relative p-2 sm:p-3 flex items-center justify-between"
+        style={{ zIndex: 1 }}
+      >
         {/* Left: Menu, Search, Discovery & Navigation */}
         <div className="flex items-center gap-1.5 pointer-events-auto">
           {/* Mobile Menu */}
@@ -202,7 +209,7 @@ export const TopToolbar = memo(function TopToolbar({
             {/* Observation Planning Group */}
             <ToolbarGroup gap="none" className="p-0.5">
               <div data-tour-id="session-planner">
-                <SessionPlanner />
+                <SessionPlannerButton />
               </div>
               <div data-tour-id="astro-events">
                 <AstroEventsCalendar />
@@ -353,7 +360,7 @@ const MobileMenuDrawer = memo(function MobileMenuDrawer({
     {
       id: 'session-planner',
       label: t('sessionPlanner.title'),
-      element: <SessionPlanner />,
+      element: <SessionPlannerButton />,
     },
     {
       id: 'astro-calculator',
@@ -452,12 +459,16 @@ const MobileMenuDrawer = memo(function MobileMenuDrawer({
           data-tour-id="mobile-menu"
           variant="ghost"
           size="icon"
+          data-starmap-ui-control="true"
           className="h-9 w-9 bg-card/60 backdrop-blur-md border border-border/50 text-foreground/80 hover:text-foreground hover:bg-accent md:hidden touch-target toolbar-btn"
         >
           <Menu className="h-4 w-4" />
         </Button>
       </DrawerTrigger>
-      <DrawerContent className="w-[85vw] max-w-80 h-full bg-card border-border p-0 flex flex-col drawer-content">
+      <DrawerContent
+        data-starmap-ui-control="true"
+        className="w-[85vw] max-w-80 h-full bg-card border-border p-0 flex flex-col drawer-content"
+      >
         <DrawerHeader className="p-4 border-b border-border shrink-0">
           <DrawerTitle className="text-foreground flex items-center gap-2">
             <Compass className="h-5 w-5 text-primary" />

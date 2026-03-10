@@ -721,7 +721,11 @@ export function LogViewer({
           <Button
             variant="secondary"
             size="sm"
-            className="absolute bottom-3 right-3 h-8 shadow-md gap-1"
+            className="absolute h-8 shadow-md gap-1"
+            style={{
+              bottom: 'calc(0.75rem + var(--safe-area-bottom))',
+              right: 'calc(0.75rem + var(--safe-area-right))',
+            }}
             onClick={scrollToBottom}
           >
             <ArrowDown className="h-3.5 w-3.5" />

@@ -195,6 +195,7 @@ pub struct WcsResult {
 pub struct OnlineSolveConfig {
     pub api_key: String,
     pub image_path: String,
+    pub operation_id: Option<String>,
     pub base_url: Option<String>,
     pub ra_hint: Option<f64>,
     pub dec_hint: Option<f64>,
@@ -219,11 +220,13 @@ pub struct OnlineSolveProgress {
     pub message: String,
     pub sub_id: Option<u64>,
     pub job_id: Option<u64>,
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnlineSolveResult {
     pub success: bool,
+    pub operation_id: Option<String>,
     pub ra: Option<f64>,
     pub dec: Option<f64>,
     pub orientation: Option<f64>,
@@ -237,6 +240,7 @@ pub struct OnlineSolveResult {
     pub job_id: Option<u64>,
     pub wcs: Option<WcsResult>,
     pub solve_time_ms: u64,
+    pub error_code: Option<String>,
     pub error_message: Option<String>,
 }
 

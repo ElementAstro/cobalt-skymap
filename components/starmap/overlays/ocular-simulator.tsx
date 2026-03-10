@@ -256,7 +256,7 @@ export function OcularSimulator({ onApplyFov, currentFov }: OcularSimulatorProps
           <Eye className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[680px] max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-[680px] max-h-[90vh] max-h-[90dvh] overflow-hidden flex flex-col">
         <DialogHeader><DialogTitle className="flex items-center gap-2"><Eye className="h-5 w-5 text-primary" />{t('ocular.eyepieceSimulator')}</DialogTitle></DialogHeader>
         <ScrollArea className="flex-1 min-h-0">
           <div className="space-y-3 pr-2">

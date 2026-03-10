@@ -4,6 +4,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { ARCameraBackground } from '../ar-camera-background';
+import type { ARSessionStatus } from '@/lib/core/ar-session';
 
 const mockStart = jest.fn();
 const mockStop = jest.fn();
@@ -18,6 +19,7 @@ let mockIsSupported = true;
 let mockHasMultipleCameras = false;
 let mockTorchOn = false;
 let mockCapabilities: { torch?: boolean } = {};
+let mockSessionStatus: ARSessionStatus = 'ready';
 
 jest.mock('@/lib/hooks/use-camera', () => ({
   useCamera: () => ({
@@ -43,6 +45,17 @@ jest.mock('@/lib/hooks/use-camera', () => ({
   }),
 }));
 
+jest.mock('@/lib/hooks/use-ar-session-status', () => ({
+  useARSessionStatus: () => ({
+    status: mockSessionStatus,
+    cameraLayerEnabled: true,
+    sensorPointingEnabled: true,
+    compassEnabled: true,
+    needsUserAction: mockSessionStatus !== 'ready',
+    recoveryActions: [],
+  }),
+}));
+
 // jsdom has no MediaStream, create a minimal mock
 class MockMediaStream {
   getTracks() { return []; }
@@ -65,6 +78,7 @@ describe('ARCameraBackground', () => {
     mockHasMultipleCameras = false;
     mockTorchOn = false;
     mockCapabilities = {};
+    mockSessionStatus = 'ready';
   });
 
   it('renders nothing when disabled', () => {
@@ -145,5 +159,12 @@ describe('ARCameraBackground', () => {
     mockErrorType = 'unknown';
     const { container } = renderComponent(<ARCameraBackground enabled={true} className="my-class" />);
     expect(container.querySelector('.my-class')).toBeInTheDocument();
+  });
+
+  it('shows AR preflight status chip when session is not ready', () => {
+    mockSessionStatus = 'preflight';
+    mockStream = new MockMediaStream() as unknown as MediaStream;
+    renderComponent(<ARCameraBackground enabled={true} />);
+    expect(screen.getByText('settings.arStatusPreflight')).toBeInTheDocument();
   });
 });

@@ -475,7 +475,7 @@ export function ExposureCalculator({
         </TooltipContent>
       </Tooltip>
       
-      <DialogContent className="w-[95vw] max-w-[640px] max-h-[85vh] overflow-hidden flex flex-col p-4 sm:p-6">
+      <DialogContent className="w-[95vw] max-w-[640px] max-h-[85vh] max-h-[85dvh] overflow-hidden flex flex-col p-4 sm:p-6">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
             <Calculator className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />

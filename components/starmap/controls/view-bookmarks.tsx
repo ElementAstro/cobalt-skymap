@@ -21,7 +21,8 @@ import {
 import type { LucideProps } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { ColorPicker } from '@/components/ui/color-picker';
+import { Field, FieldContent, FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -60,6 +61,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { cn } from '@/lib/utils';
 import {
   useBookmarksStore,
@@ -224,28 +226,33 @@ export const ViewBookmarks = memo(function ViewBookmarks({
                 </div>
               </div>
             ) : (
-              <div className="py-1">
+              <ItemGroup className="py-1">
                 {bookmarks.map((bookmark) => {
                   const IconComp = BookmarkIconComponent[bookmark.icon || 'star'];
                   return (
-                    <div
+                    <Item
                       key={bookmark.id}
-                      className="group flex items-center gap-2 px-3 py-2 hover:bg-accent cursor-pointer"
-                      onClick={() => handleNavigate(bookmark)}
+                      className="group border-0 rounded-none px-3 py-2"
                     >
-                      <span style={{ color: bookmark.color }}>
-                        <IconComp className="h-4 w-4 shrink-0" />
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{bookmark.name}</p>
-                        {bookmark.description && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {bookmark.description}
-                          </p>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        onClick={() => handleNavigate(bookmark)}
+                      >
+                        <ItemMedia className="h-auto w-auto bg-transparent p-0" style={{ color: bookmark.color }}>
+                          <IconComp className="h-4 w-4 shrink-0" />
+                        </ItemMedia>
+                        <ItemContent className="min-w-0 gap-0">
+                          <ItemTitle className="truncate">{bookmark.name}</ItemTitle>
+                          {bookmark.description && (
+                            <ItemDescription className="line-clamp-1 text-xs text-muted-foreground">
+                              {bookmark.description}
+                            </ItemDescription>
+                          )}
+                        </ItemContent>
+                      </button>
 
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ItemActions className="gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -298,11 +305,11 @@ export const ViewBookmarks = memo(function ViewBookmarks({
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </div>
-                    </div>
+                      </ItemActions>
+                    </Item>
                   );
                 })}
-              </div>
+              </ItemGroup>
             )}
           </ScrollArea>
         </PopoverContent>
@@ -328,73 +335,72 @@ export const ViewBookmarks = memo(function ViewBookmarks({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="name">{t('bookmarks.name')}</Label>
-              <Input
-                id="name"
-                value={form.name}
-                onChange={(e) => updateForm({ name: e.target.value })}
-                placeholder={t('bookmarks.namePlaceholder')}
-              />
-            </div>
+            <Field>
+              <FieldLabel htmlFor="name">{t('bookmarks.name')}</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="name"
+                  value={form.name}
+                  onChange={(e) => updateForm({ name: e.target.value })}
+                  placeholder={t('bookmarks.namePlaceholder')}
+                />
+              </FieldContent>
+            </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="description">{t('bookmarks.description')}</Label>
-              <Textarea
-                id="description"
-                value={form.description}
-                onChange={(e) => updateForm({ description: e.target.value })}
-                placeholder={t('bookmarks.descriptionPlaceholder')}
-                rows={2}
-              />
-            </div>
+            <Field>
+              <FieldLabel htmlFor="description">{t('bookmarks.description')}</FieldLabel>
+              <FieldContent>
+                <Textarea
+                  id="description"
+                  value={form.description}
+                  onChange={(e) => updateForm({ description: e.target.value })}
+                  placeholder={t('bookmarks.descriptionPlaceholder')}
+                  rows={2}
+                />
+              </FieldContent>
+            </Field>
 
-            <div className="space-y-2">
-              <Label>{t('bookmarks.icon')}</Label>
-              <ToggleGroup
-                type="single"
-                value={form.icon}
-                onValueChange={(value) => {
-                  if (value) updateForm({ icon: value as BookmarkIcon });
-                }}
-                className="flex flex-wrap gap-1"
-              >
-                {BOOKMARK_ICONS.map((icon) => {
-                  const IconComp = BookmarkIconComponent[icon];
-                  return (
-                    <ToggleGroupItem
-                      key={icon}
-                      value={icon}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-8"
-                      aria-label={icon}
-                    >
-                      <IconComp className="h-4 w-4" />
-                    </ToggleGroupItem>
-                  );
-                })}
-              </ToggleGroup>
-            </div>
+            <Field>
+              <FieldLabel>{t('bookmarks.icon')}</FieldLabel>
+              <FieldContent>
+                <ToggleGroup
+                  type="single"
+                  value={form.icon}
+                  onValueChange={(value) => {
+                    if (value) updateForm({ icon: value as BookmarkIcon });
+                  }}
+                  className="flex flex-wrap gap-1"
+                >
+                  {BOOKMARK_ICONS.map((icon) => {
+                    const IconComp = BookmarkIconComponent[icon];
+                    return (
+                      <ToggleGroupItem
+                        key={icon}
+                        value={icon}
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8"
+                        aria-label={icon}
+                      >
+                        <IconComp className="h-4 w-4" />
+                      </ToggleGroupItem>
+                    );
+                  })}
+                </ToggleGroup>
+              </FieldContent>
+            </Field>
 
-            <div className="space-y-2">
-              <Label>{t('bookmarks.color')}</Label>
-              <div className="flex flex-wrap gap-1">
-                {BOOKMARK_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    className={cn(
-                      'h-6 w-6 rounded-full border-2 transition-transform',
-                      form.color === color
-                        ? 'border-foreground scale-110'
-                        : 'border-transparent hover:scale-105'
-                    )}
-                    style={{ backgroundColor: color }}
-                    onClick={() => updateForm({ color })}
-                  />
-                ))}
-              </div>
-            </div>
+            <Field>
+              <FieldLabel>{t('bookmarks.color')}</FieldLabel>
+              <FieldContent>
+                <ColorPicker
+                  colors={BOOKMARK_COLORS}
+                  value={form.color}
+                  onChange={(color) => updateForm({ color })}
+                  className="flex flex-wrap gap-1"
+                />
+              </FieldContent>
+            </Field>
 
             {!editingBookmark && (
               <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2">

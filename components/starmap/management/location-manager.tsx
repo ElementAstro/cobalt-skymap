@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   MapPin,
@@ -57,7 +57,36 @@ import { validateLocationForm } from '@/lib/core/management-validators';
 import { fetchElevation } from '@/lib/utils/map-utils';
 import { useWebLocationStore } from '@/lib/stores/web-location-store';
 import { useShallow } from 'zustand/react/shallow';
+import { geocodingService } from '@/lib/services/geocoding-service';
+import { acquireCurrentLocation } from '@/lib/services/location-acquisition';
 import type { WebLocation, LocationManagerProps } from '@/types/starmap/management';
+
+interface LocationLike {
+  id: string;
+  is_current?: boolean;
+  is_default?: boolean;
+}
+
+interface FieldTouchState {
+  name: boolean;
+  altitude: boolean;
+}
+
+function pickDeterministicCurrent<T extends LocationLike>(
+  locations: T[],
+  preferredId?: string
+): T | null {
+  if (!locations.length) return null;
+  if (preferredId) {
+    const preferred = locations.find((loc) => loc.id === preferredId);
+    if (preferred) return preferred;
+  }
+  return (
+    locations.find((loc) => loc.is_current)
+    ?? locations.find((loc) => loc.is_default)
+    ?? locations[0]
+  );
+}
 
 function BortleClassSelect({ value, onChange, t }: { value: string; onChange: (v: string) => void; t: (key: string) => string }) {
   return (
@@ -104,9 +133,6 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
     setCurrent: setWebCurrent,
   } = useWebLocationStore.getState();
 
-  // Computed current location for web
-  const webCurrentLocation = webLocations.find(l => l.is_current) || null;
-
   // Form state
   const [form, setForm] = useState({
     name: '',
@@ -115,14 +141,37 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
     altitude: '',
     bortle_class: '',
   });
+  const [fieldTouched, setFieldTouched] = useState<FieldTouchState>({
+    name: false,
+    altitude: false,
+  });
+  const fieldTouchedRef = useRef(fieldTouched);
+
+  useEffect(() => {
+    fieldTouchedRef.current = fieldTouched;
+  }, [fieldTouched]);
+
+  const normalizedWebCurrent = pickDeterministicCurrent(webLocations);
+
+  // Determine which data source to use
+  const locationList = isTauriAvailable ? (locations?.locations ?? []) : webLocations;
+  const activeLocation = isTauriAvailable ? currentLocation : normalizedWebCurrent;
+
+  useEffect(() => {
+    if (isTauriAvailable || webLocations.length === 0) return;
+
+    const currentCount = webLocations.filter((loc) => loc.is_current).length;
+    const preferred = pickDeterministicCurrent(webLocations);
+
+    if (!preferred) return;
+    if (currentCount !== 1 || !preferred.is_current) {
+      setWebCurrent(preferred.id);
+    }
+  }, [isTauriAvailable, setWebCurrent, webLocations]);
 
   if (!mounted) {
     return null;
   }
-
-  // Determine which data source to use
-  const locationList = isTauriAvailable ? (locations?.locations ?? []) : webLocations;
-  const activeLocation = isTauriAvailable ? currentLocation : webCurrentLocation;
 
   // Validate location form
   const validateLocation = (): string | null => {
@@ -139,6 +188,7 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
       altitude: loc.altitude.toString(),
       bortle_class: loc.bortle_class?.toString() || '',
     });
+    setFieldTouched({ name: true, altitude: true });
     setEditingId(loc.id);
     setAdding(true);
     setInputMethod('manual');
@@ -184,6 +234,7 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
           toast.success(t('locations.added') || 'Location added');
         }
         setForm({ name: '', latitude: '', longitude: '', altitude: '', bortle_class: '' });
+        setFieldTouched({ name: false, altitude: false });
         setAdding(false);
         setEditingId(null);
         refresh();
@@ -219,6 +270,7 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
         }
       }
       setForm({ name: '', latitude: '', longitude: '', altitude: '', bortle_class: '' });
+      setFieldTouched({ name: false, altitude: false });
       setAdding(false);
       setEditingId(null);
     }
@@ -227,10 +279,17 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
   const handleDelete = async (id: string) => {
     if (isTauriAvailable) {
       try {
+        const removedWasCurrent = (locations?.locations ?? []).some(loc => loc.id === id && loc.is_current);
         const nextLocations = await tauriApi.locations.delete(id);
-        const nextCurrent = nextLocations.locations.find(loc => loc.id === nextLocations.current_location_id)
-          ?? nextLocations.locations.find(loc => loc.is_current);
-        if (nextCurrent && onLocationChange) {
+        const currentCount = nextLocations.locations.filter(loc => loc.is_current).length;
+        let nextCurrent = pickDeterministicCurrent(nextLocations.locations, nextLocations.current_location_id);
+
+        if (nextCurrent && nextLocations.locations.length > 0 && currentCount !== 1) {
+          await setCurrent(nextCurrent.id);
+          nextCurrent = pickDeterministicCurrent(nextLocations.locations, nextCurrent.id);
+        }
+
+        if (nextCurrent && onLocationChange && (removedWasCurrent || currentCount !== 1)) {
           onLocationChange(nextCurrent.latitude, nextCurrent.longitude, nextCurrent.altitude);
         }
         toast.success(t('locations.deleted') || 'Location deleted');
@@ -240,17 +299,20 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
       }
     } else {
       const removedWasCurrent = webLocations.some(loc => loc.id === id && loc.is_current);
+      const remaining = webLocations.filter(loc => loc.id !== id);
+      const nextCurrent = pickDeterministicCurrent(remaining);
+      const currentCount = remaining.filter(loc => loc.is_current).length;
+
       removeWebLocation(id);
-      if (removedWasCurrent) {
-        const remaining = webLocations.filter(loc => loc.id !== id);
-        const nextCurrent = remaining[0];
-        if (nextCurrent) {
+
+      if (nextCurrent && (currentCount !== 1 || !nextCurrent.is_current)) {
           setWebCurrent(nextCurrent.id);
-          if (onLocationChange) {
-            onLocationChange(nextCurrent.latitude, nextCurrent.longitude, nextCurrent.altitude);
-          }
         }
+
+      if (nextCurrent && onLocationChange && (removedWasCurrent || currentCount !== 1)) {
+        onLocationChange(nextCurrent.latitude, nextCurrent.longitude, nextCurrent.altitude);
       }
+
       toast.success(t('locations.deleted') || 'Location deleted');
     }
   };
@@ -277,41 +339,80 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
     }
   };
 
-  const handleUseGPS = () => {
-    if (!navigator.geolocation) {
-      toast.error(t('locations.gpsNotSupported') || 'GPS not supported');
+  const handleUseGPS = async () => {
+    const result = await acquireCurrentLocation({
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
+    });
+
+    if (result.status !== 'success') {
+      switch (result.status) {
+        case 'permission_denied':
+          toast.error(t('locations.locationPermissionDenied') || 'Location permission denied');
+          break;
+        case 'unavailable':
+          toast.error(t('locations.locationUnavailable') || 'Location service unavailable');
+          break;
+        case 'timeout':
+          toast.error(t('locations.locationTimedOut') || 'Location request timed out');
+          break;
+        case 'failed':
+        default:
+          toast.error(t('locations.locationFailed') || result.message || 'Failed to get current location');
+          break;
+      }
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setForm(prev => ({
-          ...prev,
-          latitude: position.coords.latitude.toFixed(6),
-          longitude: position.coords.longitude.toFixed(6),
-          altitude: position.coords.altitude?.toFixed(0) || '',
-        }));
-        toast.success(t('locations.gpsAcquired') || 'GPS location acquired');
-      },
-      (error) => {
-        toast.error(error.message);
-      },
-      { enableHighAccuracy: true }
-    );
+    const { latitude, longitude, altitude } = result.location;
+    setForm(prev => ({
+      ...prev,
+      latitude: latitude.toFixed(6),
+      longitude: longitude.toFixed(6),
+      altitude: fieldTouchedRef.current.altitude
+        ? prev.altitude
+        : (altitude !== null ? altitude.toFixed(0) : prev.altitude),
+    }));
+
+    if (!fieldTouchedRef.current.name) {
+      try {
+        const reverseResult = await geocodingService.reverseGeocode({ latitude, longitude });
+        setForm(prev => (fieldTouchedRef.current.name
+          ? prev
+          : {
+            ...prev,
+            name: reverseResult.displayName || reverseResult.address || prev.name,
+          }));
+      } catch {
+        setForm(prev => (fieldTouchedRef.current.name
+          ? prev
+          : {
+            ...prev,
+            name: prev.name || `Location ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+          }));
+      }
+    }
+
+    toast.success(t('locations.gpsAcquired') || 'GPS location acquired');
   };
 
   const handleMapLocationSelect = (location: { coordinates: { latitude: number; longitude: number }; address?: string }) => {
+    const suggestedName = location.address || `Location ${location.coordinates.latitude.toFixed(4)}, ${location.coordinates.longitude.toFixed(4)}`;
+
     setForm(prev => ({
       ...prev,
       latitude: location.coordinates.latitude.toFixed(6),
       longitude: location.coordinates.longitude.toFixed(6),
-      name: prev.name || location.address || `Location ${location.coordinates.latitude.toFixed(4)}, ${location.coordinates.longitude.toFixed(4)}`,
+      name: fieldTouchedRef.current.name ? prev.name : suggestedName,
     }));
 
     // Auto-fetch elevation for the selected location
     fetchElevation(location.coordinates.latitude, location.coordinates.longitude).then(elevation => {
       if (elevation !== null) {
-        setForm(prev => ({ ...prev, altitude: prev.altitude || Math.round(elevation).toString() }));
+        setForm(prev => (fieldTouchedRef.current.altitude
+          ? prev
+          : { ...prev, altitude: Math.round(elevation).toString() }));
       }
     });
   };
@@ -324,6 +425,7 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
       altitude: '',
       bortle_class: '',
     });
+    setFieldTouched({ name: false, altitude: false });
     setInputMethod('manual');
     setEditingId(null);
   };
@@ -338,7 +440,7 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col">
+      <DialogContent className="sm:max-w-md max-h-[85vh] max-h-[85dvh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5" />
@@ -355,7 +457,7 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
           </div>
         ) : (
           <div className="space-y-3 flex-1 overflow-y-auto min-h-0 pr-1">
-            <ScrollArea className="max-h-[160px]">
+            <ScrollArea className="max-h-40">
               {locationList.length === 0 ? (
                 <EmptyState
                   icon={MapPin}
@@ -447,7 +549,10 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
                       <Label>{t('locations.name') || 'Name'}</Label>
                       <Input
                         value={form.name}
-                        onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                        onChange={(e) => {
+                          setFieldTouched(prev => ({ ...prev, name: true }));
+                          setForm(prev => ({ ...prev, name: e.target.value }));
+                        }}
                         placeholder={t('locations.namePlaceholder') || 'e.g. Backyard, Dark Site'}
                       />
                     </div>
@@ -479,7 +584,10 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
                         <Input
                           type="number"
                           value={form.altitude}
-                          onChange={(e) => setForm(prev => ({ ...prev, altitude: e.target.value }))}
+                          onChange={(e) => {
+                            setFieldTouched(prev => ({ ...prev, altitude: true }));
+                            setForm(prev => ({ ...prev, altitude: e.target.value }));
+                          }}
                           placeholder="100"
                         />
                       </div>
@@ -499,7 +607,10 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
                         <Label>{t('locations.name') || 'Name'}</Label>
                         <Input
                           value={form.name}
-                          onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                          onChange={(e) => {
+                            setFieldTouched(prev => ({ ...prev, name: true }));
+                            setForm(prev => ({ ...prev, name: e.target.value }));
+                          }}
                           placeholder={t('locations.namePlaceholder') || 'e.g. Backyard, Dark Site'}
                         />
                       </div>
@@ -526,12 +637,15 @@ export function LocationManager({ trigger, onLocationChange }: LocationManagerPr
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label>{t('locations.altitude') || 'Altitude (m)'}</Label>
-                          <Input
-                            type="number"
-                            value={form.altitude}
-                            onChange={(e) => setForm(prev => ({ ...prev, altitude: e.target.value }))}
-                            placeholder="100"
-                          />
+                        <Input
+                          type="number"
+                          value={form.altitude}
+                          onChange={(e) => {
+                            setFieldTouched(prev => ({ ...prev, altitude: true }));
+                            setForm(prev => ({ ...prev, altitude: e.target.value }));
+                          }}
+                          placeholder="100"
+                        />
                         </div>
                         <BortleClassSelect value={form.bortle_class} onChange={(v) => setForm(prev => ({ ...prev, bortle_class: v }))} t={t} />
                       </div>

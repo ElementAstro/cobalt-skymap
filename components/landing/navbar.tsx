@@ -150,11 +150,12 @@ export function Navbar() {
   return (
     <nav
       className={cn(
-        'fixed top-0 left-0 right-0 z-50 border-b transition-all duration-300',
+        'fixed top-0 left-0 right-0 z-50 border-b transition-all duration-300 safe-area-top',
         scrolled
           ? 'glass border-border/50 shadow-sm'
           : 'bg-transparent border-transparent'
       )}
+      style={{ paddingLeft: 'var(--safe-area-left)', paddingRight: 'var(--safe-area-right)' }}
       aria-label="Main navigation"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

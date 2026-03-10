@@ -232,4 +232,4 @@ pub use index::{
     delete_index, download_index, get_available_indexes, get_downloadable_indexes,
     get_installed_indexes, get_recommended_indexes, get_solver_indexes,
 };
-pub use online::solve_online;
+pub use online::{cancel_online_solve, solve_online};

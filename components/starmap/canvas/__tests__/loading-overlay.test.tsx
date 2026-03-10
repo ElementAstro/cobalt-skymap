@@ -187,7 +187,7 @@ describe('LoadingOverlay', () => {
       expect(overlay).toHaveClass('absolute', 'inset-0');
     });
 
-    it('shows error message with destructive styling', () => {
+    it('renders error message inside an alert block', () => {
       render(
         <LoadingOverlay
           loadingState={{
@@ -202,7 +202,7 @@ describe('LoadingOverlay', () => {
       );
 
       const errorText = screen.getByText('Critical error');
-      expect(errorText).toHaveClass('text-destructive');
+      expect(errorText.closest('[data-slot="alert"]')).toBeInTheDocument();
     });
   });
 
@@ -240,6 +240,55 @@ describe('LoadingOverlay', () => {
 
       expect(screen.getByText('Initialization failed')).toBeInTheDocument();
       expect(screen.getByText('WASM error')).toBeInTheDocument();
+    });
+
+    it('renders a progressbar during loading', () => {
+      render(
+        <LoadingOverlay
+          loadingState={{
+            isLoading: true,
+            loadingStatus: 'Preparing resources...',
+            errorMessage: null,
+            startTime: null,
+            progress: 10,
+          }}
+          onRetry={mockOnRetry}
+        />
+      );
+
+      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    });
+
+    it('uses status role while loading and alert role on errors', () => {
+      const { rerender } = render(
+        <LoadingOverlay
+          loadingState={{
+            isLoading: true,
+            loadingStatus: 'Preparing resources...',
+            errorMessage: null,
+            startTime: null,
+            progress: 10,
+          }}
+          onRetry={mockOnRetry}
+        />
+      );
+
+      expect(screen.getByTestId('stellarium-loading-overlay')).toHaveAttribute('role', 'status');
+
+      rerender(
+        <LoadingOverlay
+          loadingState={{
+            isLoading: false,
+            loadingStatus: 'Initialization failed',
+            errorMessage: 'WASM error',
+            startTime: null,
+            progress: 0,
+          }}
+          onRetry={mockOnRetry}
+        />
+      );
+
+      expect(screen.getByTestId('stellarium-loading-overlay')).toHaveAttribute('role', 'alert');
     });
   });
 });

@@ -184,6 +184,23 @@ describe('ViewBookmarks', () => {
     expect(screen.getByText('Orion Nebula')).toBeInTheDocument();
   });
 
+  it('renders bookmark entries as accessible buttons', () => {
+    mockBookmarksStore.bookmarks = [
+      {
+        id: 'bm1',
+        name: 'Orion Nebula',
+        ra: 83.82,
+        dec: -5.39,
+        fov: 2,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ];
+
+    render(<ViewBookmarks {...defaultProps} />);
+    expect(screen.getByRole('button', { name: 'Orion Nebula' })).toBeInTheDocument();
+  });
+
   it('renders multiple bookmarks when they exist', () => {
     mockBookmarksStore.bookmarks = [
       {
@@ -281,9 +298,8 @@ describe('ViewBookmarks', () => {
 
     render(<ViewBookmarks {...defaultProps} />);
 
-    const bookmarkItem = screen.getByText('M42').closest('div[class*="cursor-pointer"]');
-    expect(bookmarkItem).toBeDefined();
-    fireEvent.click(bookmarkItem!);
+    const bookmarkItem = screen.getByRole('button', { name: 'M42' });
+    fireEvent.click(bookmarkItem);
 
     expect(defaultProps.onNavigate).toHaveBeenCalledWith(83.82, -5.39, 2);
   });
@@ -541,8 +557,10 @@ describe('ViewBookmarks', () => {
     mockBookmarksStore.bookmarks = [];
     render(<ViewBookmarks {...defaultProps} />);
 
-    // Color buttons are plain <button> elements with rounded-full class
-    const colorButtons = screen.getAllByRole('button').filter(btn => btn.className?.includes('rounded-full'));
+    // Color buttons are rendered by ColorPicker (w-7 h-7 icon buttons)
+    const colorButtons = screen.getAllByRole('button').filter(
+      btn => btn.className?.includes('w-7') && btn.className?.includes('h-7')
+    );
     expect(colorButtons.length).toBe(8); // 8 BOOKMARK_COLORS
     // Click the first color (red = #ef4444)
     fireEvent.click(colorButtons[0]);

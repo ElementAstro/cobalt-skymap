@@ -357,14 +357,14 @@ export const ObjectImageGallery = memo(function ObjectImageGallery({
 
       {/* Fullscreen Dialog */}
       <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
-        <DialogContent className="max-w-[95vw] max-h-[95vh] p-0 bg-black border-0">
+        <DialogContent className="max-w-[95vw] max-h-[95vh] max-h-[95dvh] p-0 bg-black border-0">
           <DialogTitle className="sr-only">{currentImage?.title || objectName}</DialogTitle>
-          <div className="relative w-full h-[90vh] flex items-center justify-center">
+          <div className="relative w-full h-[90vh] h-[90dvh] flex items-center justify-center">
             {/* Close Button */}
             <Button
               variant="ghost"
               size="icon"
-              className="absolute top-2 right-2 z-10 h-10 w-10 bg-black/50 hover:bg-black/70 text-white"
+              className="absolute top-[calc(0.5rem+var(--safe-area-top))] right-[calc(0.5rem+var(--safe-area-right))] z-10 h-10 w-10 bg-black/50 hover:bg-black/70 text-white"
               onClick={() => setFullscreenOpen(false)}
             >
               <X className="h-6 w-6" />
@@ -404,7 +404,7 @@ export const ObjectImageGallery = memo(function ObjectImageGallery({
             )}
 
             {/* Info Bar */}
-            <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/80 to-transparent p-4">
+            <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/80 to-transparent p-4 pb-[calc(1rem+var(--safe-area-bottom))]">
               <div className="flex items-center justify-between text-white">
                 <div>
                   <p className="font-medium">{currentImage.title || objectName}</p>
@@ -429,7 +429,7 @@ export const ObjectImageGallery = memo(function ObjectImageGallery({
             </div>
 
             {/* Dots Indicator */}
-            <DotsPagination count={images.length} currentIndex={currentIndex} onSelect={setCurrentIndex} variant="fullscreen" className="bottom-20" />
+            <DotsPagination count={images.length} currentIndex={currentIndex} onSelect={setCurrentIndex} variant="fullscreen" className="bottom-[calc(5rem+var(--safe-area-bottom))]" />
           </div>
         </DialogContent>
       </Dialog>

@@ -8,5 +8,6 @@ export * from './types';
 export * from './astrometry-api';
 export * from './fits-parser';
 export * from './image-utils';
+export * from './online-solve-contract';
 export * from './solve-utils';
 export * from './wcs-transform';

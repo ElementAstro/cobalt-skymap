@@ -1,4 +1,5 @@
 import type { SearchResultItem } from '@/lib/core/types';
+import { getResultId } from '@/lib/core/search-utils';
 
 export interface MergedResultMeta {
   mergedFrom?: string[];
@@ -55,6 +56,17 @@ function aliasesFromCommonNames(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function normalizeCanonicalId(value: string | undefined): string {
+  if (!value) return '';
+  return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function identifiers(item: SearchResultItem): string[] {
+  const canonical = normalizeCanonicalId(item.CanonicalId);
+  const extras = (item.Identifiers ?? []).map(normalizeCanonicalId).filter(Boolean);
+  return canonical ? [canonical, ...extras] : extras;
+}
+
 function getSource(item: SearchResultItem): string {
   return item._onlineSource || 'local';
 }
@@ -109,6 +121,15 @@ function mergePreferredFields(base: SearchResultItem, candidate: SearchResultIte
   if (base.RA === undefined && candidate.RA !== undefined) base.RA = candidate.RA;
   if (base.Dec === undefined && candidate.Dec !== undefined) base.Dec = candidate.Dec;
   if (!base.Type && candidate.Type) base.Type = candidate.Type;
+  if (!base.CanonicalId && candidate.CanonicalId) base.CanonicalId = candidate.CanonicalId;
+
+  const mergedIdentifiers = new Set<string>([
+    ...(base.Identifiers ?? []),
+    ...(candidate.Identifiers ?? []),
+  ]);
+  if (mergedIdentifiers.size > 0) {
+    base.Identifiers = Array.from(mergedIdentifiers);
+  }
   return base;
 }
 
@@ -129,17 +150,22 @@ export function mergeSearchItems(
   const mergeInto = (incoming: SearchResultItem) => {
     const incomingName = normalizeName(incoming.Name);
     const incomingAliases = new Set(aliasesFromCommonNames(incoming['Common names']));
+    const incomingCanonical = new Set(identifiers(incoming));
 
     for (const existing of merged) {
       const existingName = normalizeName(existing.Name);
       const existingAliases = new Set(aliasesFromCommonNames(existing['Common names']));
+      const existingCanonical = new Set(identifiers(existing));
 
       const coordMatch = shouldMergeByCoordinates(existing, incoming, thresholdArcsec);
+      const canonicalMatch =
+        incomingCanonical.size > 0 &&
+        Array.from(incomingCanonical).some((canonical) => existingCanonical.has(canonical));
       const nameMatch =
         incomingName &&
         (incomingName === existingName || incomingAliases.has(existingName) || existingAliases.has(incomingName));
 
-      if (coordMatch.merge || nameMatch) {
+      if (canonicalMatch || coordMatch.merge || nameMatch) {
         const incomingPriority = getPriority(incoming, sourcePriority);
         const existingPriority = getPriority(existing, sourcePriority);
         const primary = incomingPriority < existingPriority ? incoming : existing;
@@ -151,6 +177,7 @@ export function mergeSearchItems(
           next._angularSeparation = coordMatch.distanceArcsec;
         }
         next._sourcePriority = getPriority(next, sourcePriority);
+        next._stableId = getResultId(next);
         const idx = merged.indexOf(existing);
         merged[idx] = next;
         return;
@@ -160,6 +187,7 @@ export function mergeSearchItems(
     const toAdd = { ...incoming };
     toAdd._sourcePriority = getPriority(toAdd, sourcePriority);
     attachContextDistance(toAdd, options.coordinateContext);
+    toAdd._stableId = getResultId(toAdd);
     merged.push(toAdd);
   };
 

@@ -5,12 +5,15 @@ import { useTranslations } from 'next-intl';
 import {
   Settings,
   RotateCcw,
+  Save,
+  Undo2,
   Eye,
   Camera,
   Sliders,
   HardDrive,
   Info,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -39,7 +42,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import {
-  useSettingsStore,
   useEquipmentStore,
   useOnboardingBridgeStore,
 } from '@/lib/stores';
@@ -63,15 +65,22 @@ import { SettingsExportImport } from './settings-export-import';
 import { StoragePathSettings } from './storage-path-settings';
 import { UpdateSettings } from '../management/updater/update-settings';
 import { isTauri } from '@/lib/tauri/app-control-api';
+import {
+  useSettingsDraftLifecycle,
+  useSettingsDraftStatus,
+} from '@/lib/hooks/use-settings-draft';
 
 export function UnifiedSettings() {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('display');
   const [mapRefreshToken, setMapRefreshToken] = useState(0);
+  const [resetCurrentTabOpen, setResetCurrentTabOpen] = useState(false);
+  const [pendingGlobalReset, setPendingGlobalReset] = useState(false);
   const openSettingsDrawerRequestId = useOnboardingBridgeStore((state) => state.openSettingsDrawerRequestId);
   const closeTransientPanelsRequestId = useOnboardingBridgeStore((state) => state.closeTransientPanelsRequestId);
   const settingsDrawerTab = useOnboardingBridgeStore((state) => state.settingsDrawerTab);
+  const setSettingsDrawerOpen = useOnboardingBridgeStore((state) => state.setSettingsDrawerOpen);
   const handledOpenRequestRef = useRef(0);
   const handledCloseRequestRef = useRef(0);
 
@@ -83,12 +92,92 @@ export function UnifiedSettings() {
     () => TOUR_DEFINITIONS.filter((tour) => !tour.isCore),
     [],
   );
-  
+
+  const {
+    startSession,
+    cancelSession,
+    clearSession,
+    applyDraft,
+    resetCategoryDraft,
+    resetAllDraftToDefaults,
+    clearLastApplyResult,
+  } = useSettingsDraftLifecycle();
+
+  const {
+    hasDirty,
+    canApply,
+    sessionActive,
+    validation,
+  } = useSettingsDraftStatus();
+
+  const resettableCategories = useMemo(() => {
+    switch (activeTab) {
+      case 'display':
+        return ['connection', 'location'] as const;
+      case 'preferences':
+        return ['preferences', 'performance', 'accessibility', 'notifications', 'search'] as const;
+      default:
+        return [] as const;
+    }
+  }, [activeTab]);
+
+  const canResetCurrentTab = resettableCategories.length > 0;
+
+  const handleDrawerOpenChange = useCallback((nextOpen: boolean) => {
+    if (!nextOpen && sessionActive) {
+      cancelSession();
+      clearSession();
+      setPendingGlobalReset(false);
+    }
+    setSettingsDrawerOpen(nextOpen);
+    setOpen(nextOpen);
+  }, [cancelSession, clearSession, sessionActive, setSettingsDrawerOpen]);
+
+  useEffect(() => {
+    if (open && !sessionActive) {
+      startSession();
+      clearLastApplyResult();
+    }
+  }, [clearLastApplyResult, open, sessionActive, startSession]);
+
+  const handleCancelChanges = useCallback(() => {
+    cancelSession();
+    clearLastApplyResult();
+    setPendingGlobalReset(false);
+  }, [cancelSession, clearLastApplyResult]);
+
+  const handleApplyChanges = useCallback(() => {
+    const result = applyDraft();
+    if (result.success) {
+      if (pendingGlobalReset) {
+        useEquipmentStore.getState().resetToDefaults();
+        useThemeStore.getState().resetCustomization();
+        setPendingGlobalReset(false);
+      }
+      toast.success(t('settings.settingsSaved'));
+      return;
+    }
+
+    const failureSummary = result.failedDomains
+      .map((failure) => `${failure.domain}: ${failure.error}`)
+      .join('; ');
+
+    toast.error(t('settings.settingsSaveFailed'), {
+      description: failureSummary || undefined,
+    });
+  }, [applyDraft, pendingGlobalReset, t]);
+
+  const handleResetCurrentTab = useCallback(() => {
+    for (const category of resettableCategories) {
+      resetCategoryDraft(category);
+    }
+    setResetCurrentTabOpen(false);
+  }, [resetCategoryDraft, resettableCategories]);
+
   const handleResetAll = useCallback(() => {
-    useSettingsStore.getState().resetToDefaults();
-    useEquipmentStore.getState().resetToDefaults();
-    useThemeStore.getState().resetCustomization();
-  }, []);
+    resetAllDraftToDefaults();
+    setPendingGlobalReset(true);
+  }, [resetAllDraftToDefaults]);
 
   const handleMapSettingsUpdated = useCallback(() => {
     setMapRefreshToken(prev => prev + 1);
@@ -101,6 +190,7 @@ export function UnifiedSettings() {
     ) {
       handledOpenRequestRef.current = openSettingsDrawerRequestId;
       const timer = window.setTimeout(() => {
+        setSettingsDrawerOpen(true);
         setOpen(true);
         if (settingsDrawerTab) {
           setActiveTab(settingsDrawerTab);
@@ -108,7 +198,7 @@ export function UnifiedSettings() {
       }, 0);
       return () => window.clearTimeout(timer);
     }
-  }, [openSettingsDrawerRequestId, settingsDrawerTab]);
+  }, [openSettingsDrawerRequestId, setSettingsDrawerOpen, settingsDrawerTab]);
 
   useEffect(() => {
     if (
@@ -117,14 +207,16 @@ export function UnifiedSettings() {
     ) {
       handledCloseRequestRef.current = closeTransientPanelsRequestId;
       const timer = window.setTimeout(() => {
+        setSettingsDrawerOpen(false);
         setOpen(false);
+        setPendingGlobalReset(false);
       }, 0);
       return () => window.clearTimeout(timer);
     }
-  }, [closeTransientPanelsRequestId]);
+  }, [closeTransientPanelsRequestId, setSettingsDrawerOpen]);
 
   return (
-    <Drawer open={open} onOpenChange={setOpen} direction="right">
+    <Drawer open={open} onOpenChange={handleDrawerOpenChange} direction="right">
       <Tooltip>
         <TooltipTrigger asChild>
           <DrawerTrigger asChild>
@@ -162,33 +254,96 @@ export function UnifiedSettings() {
               <Settings className="h-5 w-5" />
               {t('settings.allSettings')}
             </DrawerTitle>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <RotateCcw className="h-3 w-3 mr-1" />
-                  {t('common.reset')}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t('common.reset')}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t('settings.resetAllDescription')}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleResetAll}>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!(hasDirty || pendingGlobalReset)}
+                className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                onClick={handleCancelChanges}
+              >
+                <Undo2 className="h-3 w-3 mr-1" />
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!(canApply || pendingGlobalReset)}
+                className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                onClick={handleApplyChanges}
+              >
+                <Save className="h-3 w-3 mr-1" />
+                {t('common.save')}
+              </Button>
+              <AlertDialog open={resetCurrentTabOpen} onOpenChange={setResetCurrentTabOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!canResetCurrentTab}
+                    className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <RotateCcw className="h-3 w-3 mr-1" />
                     {t('common.reset')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('common.reset')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('settings.resetAllDescription')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleResetCurrentTab}>
+                      {t('common.reset')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <RotateCcw className="h-3 w-3 mr-1" />
+                    {t('settings.resetAll')}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('common.reset')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('settings.resetAllDescription')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleResetAll}>
+                      {t('common.reset')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
+          {sessionActive && (
+            <div className="pt-2 space-y-1">
+              {(hasDirty || pendingGlobalReset) && (
+                <p className="text-[11px] text-muted-foreground">
+                  {t('settings.unsavedChanges')}
+                </p>
+              )}
+              {!validation.isValid && (
+                <p className="text-[11px] text-destructive">
+                  {t('settings.settingsSaveFailed')} ({validation.issues.length})
+                </p>
+              )}
+            </div>
+          )}
         </DrawerHeader>
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
