@@ -29,7 +29,11 @@ export const SearchPanel = memo(forwardRef<StellariumSearchRef, SearchPanelProps
     const mobileControlClass = isMobileShell ? 'h-9 w-9 min-w-9 touch-target' : 'h-6 w-6 min-w-6';
 
     const panelBody = (
-      <ScrollArea className="max-h-[70vh] max-h-[70dvh]">
+      <ScrollArea
+        data-starmap-ui-control="true"
+        data-starmap-scroll-surface="true"
+        className="max-h-[70vh] max-h-[70dvh] overscroll-contain"
+      >
         {showFavorites ? (
           <FavoritesQuickAccess
             onSelect={(_item) => {

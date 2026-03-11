@@ -200,6 +200,9 @@ describe('MobileLayout', () => {
     const { container } = render(<MobileLayout {...defaultProps} />);
     const mobileBottomBar = container.querySelector('.mobile-bottom-bar');
     expect(mobileBottomBar).not.toBeNull();
+    expect(screen.getByTestId('mobile-action-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bottom-tools-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-zoom-cluster')).toBeInTheDocument();
 
     const bottomBar = mobileBottomBar as HTMLElement;
     expect(within(bottomBar).getByTestId('tool-markers')).toBeInTheDocument();
@@ -225,7 +228,25 @@ describe('MobileLayout', () => {
     mockSettingsState.mobileFeaturePreferences.oneHandMode = true;
     const { container } = render(<MobileLayout {...defaultProps} />);
 
-    expect(container.querySelector('.one-hand-bottom-bar')).toBeInTheDocument();
+    const oneHandBar = container.querySelector('.one-hand-bottom-bar');
+    expect(oneHandBar).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-bottom-tools-bar')).toHaveStyle({
+      right: 'calc(0.5rem + var(--safe-area-right))',
+    });
+    expect(screen.getByTestId('mobile-zoom-cluster')).toHaveStyle({
+      bottom: 'calc(8.5rem + var(--safe-area-bottom))',
+    });
+  });
+
+  it('reserves right-side clearance for zoom controls in default mode', () => {
+    render(<MobileLayout {...defaultProps} />);
+
+    expect(screen.getByTestId('mobile-bottom-tools-bar')).toHaveStyle({
+      right: 'calc(4rem + var(--safe-area-right))',
+    });
+    expect(screen.getByTestId('mobile-zoom-cluster')).toHaveStyle({
+      bottom: 'calc(3.75rem + var(--safe-area-bottom))',
+    });
   });
 
   it('calls core action callbacks from rail buttons', () => {

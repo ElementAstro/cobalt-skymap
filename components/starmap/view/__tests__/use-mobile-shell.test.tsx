@@ -80,4 +80,29 @@ describe('useMobileShell', () => {
     expect(result.current.viewportHeight).toBe(720);
     expect(result.current.isMobileShell).toBe(true);
   });
+
+  it('treats widths above the mobile breakpoint as desktop shell', () => {
+    setViewport(910, 700);
+    const { result } = renderHook(() => useMobileShell());
+    expect(result.current.isMobileShell).toBe(false);
+
+    act(() => {
+      setViewport(900, 700);
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(result.current.isMobileShell).toBe(true);
+  });
+
+  it('supports mobile shell in supported landscape viewport sizes', () => {
+    setViewport(1100, 620);
+    const { result } = renderHook(() => useMobileShell());
+    expect(result.current.isLandscape).toBe(true);
+    expect(result.current.isMobileShell).toBe(true);
+
+    act(() => {
+      setViewport(1250, 620);
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(result.current.isMobileShell).toBe(false);
+  });
 });

@@ -97,4 +97,30 @@ describe('useStarmapMobileUiStore', () => {
     expect(useStarmapMobileUiStore.getState().activePanel).toBeNull();
     expect(useStarmapMobileUiStore.getState().previousPanel).toBeNull();
   });
+
+  it('clears stale previous panel when opening with preservePrevious disabled', () => {
+    act(() => {
+      const store = useStarmapMobileUiStore.getState();
+      store.openPanel('search');
+      store.openPanel('details');
+      store.openPanel('settings', { preservePrevious: false });
+    });
+
+    const state = useStarmapMobileUiStore.getState();
+    expect(state.activePanel).toBe('settings');
+    expect(state.previousPanel).toBeNull();
+  });
+
+  it('normalizes previous panel when opening the same panel repeatedly', () => {
+    act(() => {
+      const store = useStarmapMobileUiStore.getState();
+      store.openPanel('search');
+      store.openPanel('details');
+      store.openPanel('details');
+    });
+
+    const state = useStarmapMobileUiStore.getState();
+    expect(state.activePanel).toBe('details');
+    expect(state.previousPanel).toBe('search');
+  });
 });

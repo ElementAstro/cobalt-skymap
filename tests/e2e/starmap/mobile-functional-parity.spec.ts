@@ -1,5 +1,10 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { waitForStarmapReady } from '../fixtures/test-helpers';
+import {
+  waitForStarmapReady,
+  expectInViewport,
+  expectNoOverlap,
+  expectMinimumTouchTarget,
+} from '../fixtures/test-helpers';
 
 async function clickRailButton(forceLocator: Locator) {
   await forceLocator.evaluate((element) => {
@@ -64,30 +69,60 @@ test.describe('Mobile Functional Parity', () => {
     await page.setViewportSize({ width: 320, height: 568 });
     await waitForStarmapReady(page, { skipWasmWait: true });
 
-    const railButtons = [
-      page.getByTestId('mobile-rail-search'),
-      page.getByTestId('mobile-rail-details'),
-      page.getByTestId('mobile-rail-planning'),
-      page.getByTestId('mobile-rail-settings'),
-    ];
+    const searchRailButton = page.getByTestId('mobile-rail-search');
+    const detailRailButton = page.getByTestId('mobile-rail-details');
+    const planningRailButton = page.getByTestId('mobile-rail-planning');
+    const settingsRailButton = page.getByTestId('mobile-rail-settings');
+    const actionRail = page.getByTestId('mobile-action-rail');
+    const bottomTools = page.getByTestId('mobile-bottom-tools-bar');
+    const zoomCluster = page.getByTestId('mobile-zoom-cluster');
+    const markersTool = bottomTools.locator('[data-tour-id="markers"]').first();
 
-    for (const button of railButtons) {
-      await expect(button).toBeVisible();
-      const box = await button.boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.x).toBeGreaterThanOrEqual(0);
-      expect(box!.x + box!.width).toBeLessThanOrEqual(320);
-    }
+    await expect(actionRail).toBeVisible();
+    await expect(bottomTools).toBeVisible();
+    await expect(zoomCluster).toBeVisible();
+    await expect(markersTool).toBeVisible();
+
+    await expectInViewport(page, actionRail, 'mobile action rail');
+    await expectInViewport(page, zoomCluster, 'mobile zoom cluster');
+    await expectInViewport(page, markersTool, 'mobile markers tool entry');
+
+    await expectNoOverlap(actionRail, zoomCluster, 'action rail', 'zoom cluster', 2);
+
+    await expectMinimumTouchTarget(searchRailButton, 'mobile search rail button');
+    await expectMinimumTouchTarget(planningRailButton, 'mobile planning rail button');
+    await expectMinimumTouchTarget(settingsRailButton, 'mobile settings rail button');
+    await expectMinimumTouchTarget(detailRailButton, 'mobile details rail button');
 
     await page.setViewportSize({ width: 812, height: 375 });
 
-    const landscapeSearchEntry = page.getByTestId('mobile-rail-search').or(page.locator('[data-tour-id="search-button"]').first()).first();
-    const landscapePlanningEntry = page.getByTestId('mobile-rail-planning').or(page.locator('[data-tour-id="session-planner"]').first()).first();
-    const landscapeSettingsEntry = page.getByTestId('mobile-rail-settings').or(page.getByTestId('settings-button')).first();
+    const landscapeSearchEntry = page.getByTestId('mobile-rail-search')
+      .or(page.locator('[data-tour-id="search-button"]').first())
+      .first();
+    const landscapePlanningEntry = page.getByTestId('mobile-rail-planning')
+      .or(page.locator('[data-tour-id="session-planner"]').first())
+      .first();
+    const landscapeSettingsEntry = page.getByTestId('mobile-rail-settings')
+      .or(page.getByTestId('settings-button'))
+      .first();
 
     await expect(landscapeSearchEntry).toBeVisible();
     await expect(landscapePlanningEntry).toBeVisible();
     await expect(landscapeSettingsEntry).toBeVisible();
+
+    const actionRailVisible = await actionRail.isVisible().catch(() => false);
+    const bottomToolsVisible = await bottomTools.isVisible().catch(() => false);
+    const zoomClusterVisible = await zoomCluster.isVisible().catch(() => false);
+
+    if (actionRailVisible) {
+      await expectInViewport(page, actionRail, 'mobile action rail (landscape)');
+    }
+    if (bottomToolsVisible) {
+      await expect(markersTool).toBeVisible();
+    }
+    if (zoomClusterVisible) {
+      await expectInViewport(page, zoomCluster, 'mobile zoom cluster (landscape)');
+    }
   });
 
   test('shows actionable fallback when sensor permission is denied in AR flow', async ({ page }) => {

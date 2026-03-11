@@ -1,6 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { StarmapPage } from '../fixtures/page-objects';
-import { waitForStarmapReady } from '../fixtures/test-helpers';
+import {
+  waitForStarmapReady,
+  expectInViewport,
+  expectNoOverlap,
+  expectMinimumTouchTarget,
+} from '../fixtures/test-helpers';
 
 async function setMobilePreferences(
   page: Page,
@@ -41,8 +46,15 @@ test.describe('Mobile Interactions', () => {
 
     await expect(page.locator('#__next_error__')).toHaveCount(0);
     await expect(starmapPage.canvas).toBeVisible();
-    await expect(page.locator('.mobile-bottom-bar')).toBeVisible();
-    await expect(page.locator('button:has(svg.lucide-menu)').first()).toBeVisible();
+    const bottomBar = page.getByTestId('mobile-bottom-tools-bar');
+    const actionRail = page.getByTestId('mobile-action-rail');
+    const zoomCluster = page.getByTestId('mobile-zoom-cluster');
+    await expect(bottomBar).toBeVisible();
+    await expect(actionRail).toBeVisible();
+    await expect(zoomCluster).toBeVisible();
+    await expectInViewport(page, bottomBar, 'mobile bottom tools bar');
+    await expectInViewport(page, actionRail, 'mobile action rail');
+    await expectNoOverlap(bottomBar, zoomCluster, 'mobile bottom tools bar', 'mobile zoom cluster', 2);
   });
 
   test('opens mobile drawer and exposes core feature entries', async ({ page }) => {
@@ -107,13 +119,11 @@ test.describe('Mobile Interactions', () => {
     const oneHandBar = page.locator('.one-hand-bottom-bar');
     await expect(oneHandBar).toBeVisible();
 
-    const zoomPanel = page.locator('[data-tour-id="zoom"]').last();
+    const zoomPanel = page.getByTestId('mobile-zoom-cluster');
     await expect(zoomPanel).toBeVisible();
-    const zoomBox = await zoomPanel.boundingBox();
-    const barBox = await oneHandBar.boundingBox();
-    expect(zoomBox).not.toBeNull();
-    expect(barBox).not.toBeNull();
-    expect(zoomBox!.y + zoomBox!.height).toBeLessThanOrEqual(barBox!.y + 2);
+    await expectInViewport(page, oneHandBar, 'one-hand bottom bar');
+    await expectInViewport(page, zoomPanel, 'one-hand zoom cluster');
+    await expectNoOverlap(oneHandBar, zoomPanel, 'one-hand bottom bar', 'one-hand zoom cluster', 4);
   });
 
   test('mobile bottom bar keeps multiple tools reachable', async ({ page }) => {
@@ -134,15 +144,13 @@ test.describe('Mobile Interactions', () => {
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    const candidates = page.locator('.mobile-bottom-bar button:visible');
-    const count = await candidates.count();
-    const sampleCount = Math.min(count, 4);
-    for (let index = 0; index < sampleCount; index++) {
-      const box = await candidates.nth(index).boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.width).toBeGreaterThanOrEqual(24);
-      expect(box!.height).toBeGreaterThanOrEqual(24);
-    }
+    await expectMinimumTouchTarget(page.getByTestId('mobile-rail-search'), 'mobile rail search', 44);
+    await expectMinimumTouchTarget(page.getByTestId('mobile-rail-planning'), 'mobile rail planning', 44);
+    await expectMinimumTouchTarget(page.getByTestId('mobile-rail-settings'), 'mobile rail settings', 44);
+
+    const moreButton = page.locator('[data-tour-id="mobile-more-tools"]').first();
+    await expect(moreButton).toBeVisible();
+    await expectMinimumTouchTarget(moreButton, 'mobile more tools button', 44);
   });
 
   test('desktop viewport hides mobile bottom bar', async ({ page }) => {

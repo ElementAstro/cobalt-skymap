@@ -247,6 +247,35 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
     wasSettingsDrawerOpenRef.current = settingsDrawerOpen;
   }, [activeMobilePanel, closeMobilePanelIfActive, isMobileShell, settingsDrawerOpen]);
 
+  const closeMobilePanelContext = useCallback((panel: 'search' | 'details' | 'planning' | 'settings') => {
+    if (panel === 'settings') {
+      closeTransientPanels();
+      closeMobilePanelIfActive('settings');
+      return;
+    }
+
+    if (panel === 'planning') {
+      setSessionPlannerOpen(false);
+      closeMobilePanelIfActive('planning');
+      return;
+    }
+
+    if (panel === 'search') {
+      setIsSearchOpen(false);
+      closeMobilePanelIfActive('search');
+      return;
+    }
+
+    setDetailDrawerOpen(false);
+    closeMobilePanelIfActive('details');
+  }, [
+    closeMobilePanelIfActive,
+    closeTransientPanels,
+    setDetailDrawerOpen,
+    setIsSearchOpen,
+    setSessionPlannerOpen,
+  ]);
+
   const handleSearchToggle = useCallback(() => {
     if (!isMobileShell) {
       toggleSearch();
@@ -254,14 +283,14 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
     }
 
     if (activeMobilePanel === 'search') {
-      closeMobilePanelIfActive('search');
+      closeMobilePanelContext('search');
       return;
     }
 
     openMobilePanel('search');
   }, [
     activeMobilePanel,
-    closeMobilePanelIfActive,
+    closeMobilePanelContext,
     isMobileShell,
     openMobilePanel,
     toggleSearch,
@@ -269,18 +298,26 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
 
   const handleOpenDetails = useCallback(() => {
     if (!selectedObject) return;
-    openMobilePanel('details');
-  }, [openMobilePanel, selectedObject]);
+    if (isMobileShell) {
+      openMobilePanel('details');
+      return;
+    }
+    setDetailDrawerOpen(true);
+  }, [isMobileShell, openMobilePanel, selectedObject, setDetailDrawerOpen]);
 
   const handleOpenSessionPlanner = useCallback(() => {
-    openMobilePanel('planning');
+    if (isMobileShell) {
+      openMobilePanel('planning');
+    }
     openSessionPlanner();
-  }, [openMobilePanel, openSessionPlanner]);
+  }, [isMobileShell, openMobilePanel, openSessionPlanner]);
 
   const handleOpenSettings = useCallback(() => {
-    openMobilePanel('settings');
+    if (isMobileShell) {
+      openMobilePanel('settings');
+    }
     openSettingsDrawer();
-  }, [openMobilePanel, openSettingsDrawer]);
+  }, [isMobileShell, openMobilePanel, openSettingsDrawer]);
 
   const mobileShellContainerStyle: CSSProperties | undefined = isMobileShell
     ? ({
@@ -311,24 +348,16 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
           onZoomOut={handleZoomOut}
           onResetView={handleResetView}
           onClosePanel={() => {
-            if (isMobileShell && activeMobilePanel === 'settings') {
-              closeTransientPanels();
-              closeMobilePanelIfActive('settings');
+            if (isMobileShell && activeMobilePanel) {
+              closeMobilePanelContext(activeMobilePanel);
               return;
             }
-            if (isMobileShell && activeMobilePanel === 'planning') {
-              setSessionPlannerOpen(false);
-              closeMobilePanelIfActive('planning');
-              return;
-            }
-            if (isSearchOpen || activeMobilePanel === 'search') {
+            if (isSearchOpen) {
               setIsSearchOpen(false);
-              closeMobilePanelIfActive('search');
               return;
             }
-            if (detailDrawerOpen || activeMobilePanel === 'details') {
+            if (detailDrawerOpen) {
               setDetailDrawerOpen(false);
-              closeMobilePanelIfActive('details');
               return;
             }
             if (selectedObject) setSelectedObject(null);
@@ -438,18 +467,8 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
           ref={searchRef}
           isOpen={isSearchOpen}
           isMobileShell={isMobileShell}
-          onClose={() => {
-            setIsSearchOpen(false);
-            if (isMobileShell) {
-              closeMobilePanelIfActive('search');
-            }
-          }}
-          onSelect={() => {
-            setIsSearchOpen(false);
-            if (isMobileShell) {
-              closeMobilePanelIfActive('search');
-            }
-          }}
+          onClose={() => closeMobilePanelContext('search')}
+          onSelect={() => closeMobilePanelContext('search')}
         />
 
         {/* Right Side Controls - Desktop */}
@@ -508,9 +527,7 @@ export function StellariumView({ showSplash = false }: StellariumViewProps) {
           onOpenChange={(open) => {
             setDetailDrawerOpen(open);
             if (!open) {
-              if (isMobileShell) {
-                closeMobilePanelIfActive('details');
-              }
+              if (isMobileShell) closeMobilePanelContext('details');
             }
           }}
           selectedObject={selectedObject}

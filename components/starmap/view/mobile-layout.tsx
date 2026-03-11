@@ -41,6 +41,7 @@ import {
   getMobileToolsForSurface,
   sortByMobileToolPriority,
 } from '@/lib/constants/mobile-tools';
+import { getMobileLayoutOffsets } from '@/lib/constants/starmap-mobile-layout';
 import { useEquipmentFOVProps } from '@/lib/hooks/use-equipment-fov-props';
 import { useEquipmentStore, useOnboardingBridgeStore, useSettingsStore } from '@/lib/stores';
 import type { MobileLayoutProps } from '@/types/starmap/view';
@@ -200,18 +201,14 @@ export const MobileLayout = memo(function MobileLayout({
   );
 
   const bottomBarTools = compactBottomBar ? compactVisibleTools : allTools;
-  const actionRailBottomOffset = 'calc(0.25rem + var(--safe-area-bottom))';
-  const controlsBottomOffset = 'calc(3.75rem + var(--safe-area-bottom))';
-  const zoomBottomOffset = oneHandMode
-    ? 'calc(8.5rem + var(--safe-area-bottom))'
-    : controlsBottomOffset;
-  const safeAreaLeft = oneHandMode
-    ? 'calc(3rem + var(--safe-area-left))'
-    : 'calc(0.5rem + var(--safe-area-left))';
-  const safeAreaRight = 'calc(0.5rem + var(--safe-area-right))';
-  const safeAreaRightWithControls = oneHandMode
-    ? safeAreaRight
-    : 'calc(4rem + var(--safe-area-right))';
+  const {
+    actionRailBottomOffset,
+    controlsBottomOffset,
+    zoomBottomOffset,
+    safeAreaLeft,
+    safeAreaRight,
+    safeAreaRightWithControls,
+  } = useMemo(() => getMobileLayoutOffsets({ oneHandMode }), [oneHandMode]);
 
   useEffect(() => {
     if (
@@ -252,6 +249,7 @@ export const MobileLayout = memo(function MobileLayout({
       {/* Mobile Core Action Rail */}
       <div
         data-starmap-ui-control="true"
+        data-testid="mobile-action-rail"
         className={cn(
           'sm:hidden absolute flex items-center gap-1 min-w-0 overflow-hidden rounded-lg border border-border/60 bg-card/90 p-1 backdrop-blur-md pointer-events-auto',
         )}
@@ -315,6 +313,7 @@ export const MobileLayout = memo(function MobileLayout({
       {/* Mobile Controls - Bottom Right Corner */}
       <div
         data-starmap-ui-control="true"
+        data-testid="mobile-zoom-cluster"
         className="sm:hidden absolute flex flex-col items-center gap-1 pointer-events-auto animate-slide-in-right"
         style={{ bottom: zoomBottomOffset, right: safeAreaRight }}
       >
@@ -333,6 +332,7 @@ export const MobileLayout = memo(function MobileLayout({
       <div
         ref={toolsBarRef}
         data-starmap-ui-control="true"
+        data-testid="mobile-bottom-tools-bar"
         className={cn(
           'mobile-bottom-bar sm:hidden absolute flex items-center gap-0.5 bg-card/90 backdrop-blur-md rounded-lg border border-border/50 p-1 pointer-events-auto overflow-x-auto scrollbar-hide animate-slide-in-left',
           oneHandMode && 'one-hand-bottom-bar',
@@ -371,7 +371,11 @@ export const MobileLayout = memo(function MobileLayout({
                 <DrawerHeader>
                   <DrawerTitle>{t('settingsNew.mobile.moreToolsTitle')}</DrawerTitle>
                 </DrawerHeader>
-                <ScrollArea className="pb-6 px-4">
+                <ScrollArea
+                  data-starmap-ui-control="true"
+                  data-starmap-scroll-surface="true"
+                  className="pb-6 px-4 overscroll-contain"
+                >
                   <div
                     ref={drawerToolGridRef}
                     data-mobile-more-tools="true"

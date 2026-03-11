@@ -1,4 +1,4 @@
-import { Page, expect } from '@playwright/test';
+import { Page, Locator, expect } from '@playwright/test';
 import { TEST_TIMEOUTS } from './test-data';
 
 /**
@@ -188,4 +188,78 @@ export async function searchAndSelectObject(page: Page, objectName: string) {
     }
   }
   return false;
+}
+
+interface BoxLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function right(box: BoxLike) {
+  return box.x + box.width;
+}
+
+function bottom(box: BoxLike) {
+  return box.y + box.height;
+}
+
+export async function getVisibleBox(locator: Locator, label: string): Promise<BoxLike> {
+  await expect(locator, `${label} should be visible`).toBeVisible();
+  const box = await locator.boundingBox();
+  expect(box, `${label} should expose a layout box`).not.toBeNull();
+  return box as BoxLike;
+}
+
+export async function expectInViewport(
+  page: Page,
+  locator: Locator,
+  label: string,
+  padding = 0,
+) {
+  const viewport = page.viewportSize();
+  expect(viewport, 'viewport must be available in headed/headless browser context').not.toBeNull();
+  const box = await getVisibleBox(locator, label);
+  const viewportWidth = viewport!.width;
+  const viewportHeight = viewport!.height;
+
+  expect(box.x, `${label} should start within viewport`).toBeGreaterThanOrEqual(padding);
+  expect(box.y, `${label} should start within viewport`).toBeGreaterThanOrEqual(padding);
+  expect(right(box), `${label} should end within viewport`).toBeLessThanOrEqual(viewportWidth - padding);
+  expect(bottom(box), `${label} should end within viewport`).toBeLessThanOrEqual(viewportHeight - padding);
+}
+
+export function boxesOverlap(a: BoxLike, b: BoxLike, minGap = 0) {
+  return !(
+    right(a) + minGap <= b.x
+    || right(b) + minGap <= a.x
+    || bottom(a) + minGap <= b.y
+    || bottom(b) + minGap <= a.y
+  );
+}
+
+export async function expectNoOverlap(
+  first: Locator,
+  second: Locator,
+  firstLabel: string,
+  secondLabel: string,
+  minGap = 0,
+) {
+  const firstBox = await getVisibleBox(first, firstLabel);
+  const secondBox = await getVisibleBox(second, secondLabel);
+  expect(
+    boxesOverlap(firstBox, secondBox, minGap),
+    `${firstLabel} and ${secondLabel} should not overlap (minGap=${minGap}px)`,
+  ).toBe(false);
+}
+
+export async function expectMinimumTouchTarget(
+  locator: Locator,
+  label: string,
+  minSize = 44,
+) {
+  const box = await getVisibleBox(locator, label);
+  expect(box.width, `${label} width should be >= ${minSize}px`).toBeGreaterThanOrEqual(minSize);
+  expect(box.height, `${label} height should be >= ${minSize}px`).toBeGreaterThanOrEqual(minSize);
 }

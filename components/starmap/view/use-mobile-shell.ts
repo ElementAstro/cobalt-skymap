@@ -28,12 +28,11 @@ function getServerViewportKey() {
 }
 
 function isMobileShellViewport(width: number, height: number) {
-  if (width <= MOBILE_SHELL_MAX_WIDTH) {
-    return true;
-  }
-
-  const landscape = width > height;
-  return landscape && width <= MOBILE_SHELL_LANDSCAPE_MAX_WIDTH && height <= MOBILE_SHELL_LANDSCAPE_MAX_HEIGHT;
+  return width <= MOBILE_SHELL_MAX_WIDTH || (
+    width > height &&
+    width <= MOBILE_SHELL_LANDSCAPE_MAX_WIDTH &&
+    height <= MOBILE_SHELL_LANDSCAPE_MAX_HEIGHT
+  );
 }
 
 export function useMobileShell(): MobileShellState {
@@ -48,11 +47,15 @@ export function useMobileShell(): MobileShellState {
       window.addEventListener('resize', handleResize);
       window.addEventListener('orientationchange', handleResize);
       window.visualViewport?.addEventListener('resize', handleResize);
+      window.visualViewport?.addEventListener('scroll', handleResize);
+      const bootstrapTimer = window.setTimeout(onStoreChange, 0);
 
       return () => {
+        window.clearTimeout(bootstrapTimer);
         window.removeEventListener('resize', handleResize);
         window.removeEventListener('orientationchange', handleResize);
         window.visualViewport?.removeEventListener('resize', handleResize);
+        window.visualViewport?.removeEventListener('scroll', handleResize);
       };
     },
     () => {
@@ -67,11 +70,10 @@ export function useMobileShell(): MobileShellState {
     const viewportWidth = Number(viewportWidthRaw) || FALLBACK_VIEWPORT_WIDTH;
     const viewportHeight = Number(viewportHeightRaw) || FALLBACK_VIEWPORT_HEIGHT;
 
-    const isLandscape = viewportWidth > viewportHeight;
     return {
-      isLandscape,
       viewportWidth,
       viewportHeight,
+      isLandscape: viewportWidth > viewportHeight,
       isMobileShell: isMobileShellViewport(viewportWidth, viewportHeight),
     };
   }, [viewportKey]);

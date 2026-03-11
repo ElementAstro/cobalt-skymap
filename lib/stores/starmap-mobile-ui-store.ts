@@ -36,10 +36,17 @@ export const useStarmapMobileUiStore = create<StarmapMobileUiState>((set, get) =
   openPanel: (panel, options) =>
     set((state) => {
       const preservePrevious = options?.preservePrevious ?? true;
-      const shouldUpdatePrevious = preservePrevious && state.activePanel !== null && state.activePanel !== panel;
+      if (state.activePanel === panel) {
+        return {
+          activePanel: panel,
+          previousPanel: state.previousPanel === panel ? null : state.previousPanel,
+        };
+      }
+
+      const shouldUpdatePrevious = preservePrevious && state.activePanel !== null;
       return {
         activePanel: panel,
-        previousPanel: shouldUpdatePrevious ? state.activePanel : state.previousPanel,
+        previousPanel: shouldUpdatePrevious ? state.activePanel : null,
       };
     }),
   closePanel: (options) =>

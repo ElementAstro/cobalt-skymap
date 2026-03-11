@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, RefObject } from 'react';
+import { useCallback, useEffect, useRef, RefObject } from 'react';
 import {
   LONG_PRESS_DURATION,
   TOUCH_MOVE_THRESHOLD,
@@ -15,6 +15,20 @@ interface UseStellariumEventsOptions {
   onContextMenu?: (e: React.MouseEvent, coords: ClickCoordinates | null) => void;
 }
 
+const UI_CONTROL_SELECTOR = [
+  '[data-starmap-ui-control="true"]',
+  '[data-starmap-scroll-surface="true"]',
+  'button',
+  'a[href]',
+  'input',
+  'textarea',
+  'select',
+  '[role="button"]',
+  '[role="dialog"]',
+  '[data-slot="dialog-content"]',
+  '[data-slot="drawer-content"]',
+].join(', ');
+
 /**
  * Hook for handling right-click context menu and mobile long press events
  */
@@ -23,12 +37,12 @@ export function useStellariumEvents({
   getClickCoordinates,
   onContextMenu,
 }: UseStellariumEventsOptions) {
-  const isUiControlTarget = (target: EventTarget | null) => {
+  const isUiControlTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof Element)) {
       return false;
     }
-    return target.closest('[data-starmap-ui-control="true"]') !== null;
-  };
+    return target.closest(UI_CONTROL_SELECTOR) !== null;
+  }, []);
 
   // Long press handling for mobile devices
   const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -201,5 +215,5 @@ export function useStellariumEvents({
         clearTimeout(longPressTimeoutRef.current);
       }
     };
-  }, [containerRef, onContextMenu, getClickCoordinates]);
+  }, [containerRef, getClickCoordinates, isUiControlTarget, onContextMenu]);
 }

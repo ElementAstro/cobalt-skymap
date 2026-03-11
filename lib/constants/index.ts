@@ -13,3 +13,4 @@ export * from './map';
 export * from './onboarding';
 export * from './onboarding-capabilities';
 export * from './mobile-tools';
+export * from './starmap-mobile-layout';

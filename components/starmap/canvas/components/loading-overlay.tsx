@@ -79,6 +79,7 @@ export function LoadingOverlay({ loadingState, onRetry }: LoadingOverlayProps) {
   return (
     <div
       data-testid="stellarium-loading-overlay"
+      data-starmap-ui-control="true"
       role={liveRole}
       aria-live={liveRole === 'alert' ? 'assertive' : 'polite'}
       className="absolute inset-0 z-10 flex items-center justify-center bg-black/85 px-4"
